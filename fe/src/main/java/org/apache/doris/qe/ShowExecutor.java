@@ -91,12 +91,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.proc.BackendsProcDir;
-import org.apache.doris.common.proc.FrontendsProcNode;
-import org.apache.doris.common.proc.LoadProcDir;
-import org.apache.doris.common.proc.PartitionsProcDir;
-import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.proc.*;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -1017,8 +1012,13 @@ public class ShowExecutor {
         ShowAlterStmt showStmt = (ShowAlterStmt) stmt;
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = procNodeI.fetchResult().getRows();
-
+        List<List<String>> rows;
+        if (procNodeI instanceof SchemaChangeProcNode) {
+            rows = ((SchemaChangeProcNode) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+        } else {
+            rows = procNodeI.fetchResult().getRows();
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
