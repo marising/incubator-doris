@@ -32,6 +32,8 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
+import javax.validation.constraints.Null;
+
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
@@ -56,7 +58,7 @@ public class ShowAlterStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
+    public void testLoadStmt() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testDb`", stmt.toString());
@@ -73,6 +75,31 @@ public class ShowAlterStmtTest {
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `label` LIKE \'abc\' LIMIT 10", stmt.toString());
+    }
+
+    @Test
+    public void testAlterStmt() throws UserException, AnalysisException {
+        ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN,null, null,
+                null,null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb`", stmt.toString());
+
+        SlotRef slotRef = new SlotRef(null, "TableName");
+        StringLiteral stringLiteral = new StringLiteral("abc");
+        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
+        stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, binaryPredicate, null,
+                new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW ALTER TABLE FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 10",
+                stmt.toString());
+
+        LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
+                slotRef, stringLiteral);
+        stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN,null, likePredicate, null,
+                new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW ALTER TABLE FROM `testDb` WHERE `TableName` LIKE \'abc\' LIMIT 10",
+                stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
