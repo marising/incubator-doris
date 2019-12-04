@@ -17,13 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.proc.*;
+import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.proc.RollupProcDir;
+import org.apache.doris.common.proc.SchemaChangeProcNode;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -41,7 +47,7 @@ import java.util.List;
 /*
  * ShowAlterStmt: used to show process state of alter statement.
  * Syntax:
- *      SHOW ALTER TABLE [COLUMN | ROLLUP] [FROM dbName] [WHERE TableName="xxx"] [ORDER BY CreateTime DESC] [LIMIT 0,1]
+ *      SHOW ALTER TABLE [COLUMN | ROLLUP] [FROM dbName] [WHERE TableName="xxx"] [ORDER BY CreateTime DESC] [LIMIT [offset,]rows]
  */
 public class ShowAlterStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowAlterStmt.class);
@@ -60,18 +66,11 @@ public class ShowAlterStmt extends ShowStmt {
 
     private ProcNodeInterface node;
 
-    public AlterType getType() {
-        return type;
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
+    public AlterType getType() { return type; }
+    public String getDbName() { return dbName; }
     public HashMap<String, Expr> getFilterMap() { return filterMap; }
     public LimitElement getLimitElement(){ return limitElement; }
     public ArrayList<OrderByPair> getOrderPairs(){ return orderByPairs; }
-
 
     public ProcNodeInterface getNode() {
         return this.node;
@@ -84,6 +83,7 @@ public class ShowAlterStmt extends ShowStmt {
         this.whereClause = whereClause;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
+        this.filterMap = new HashMap<String, Expr>();
     }
 
     private boolean getPredicateValue(Expr subExpr) throws AnalysisException {
@@ -95,16 +95,16 @@ public class ShowAlterStmt extends ShowStmt {
             return false;
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
-        leftKey = leftKey.toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
             if (!(subExpr.getChild(1) instanceof StringLiteral) ||
                     binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                 return false;
             }
         } else if (leftKey.equals("createtime") || leftKey.equals("finishtime")) {
-            if (!(subExpr.getChild(1) instanceof DateLiteral)) {
+            if (!(subExpr.getChild(1) instanceof StringLiteral)) {
                 return false;
             }
+            subExpr.setChild(1,((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
         } else {
             return false;
         }
@@ -136,6 +136,14 @@ public class ShowAlterStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        //first analyze 
+        analyzeSyntax(analyzer);        
+
+        // check auth when get job info
+        handleShowAlterTable(analyzer);
+    }
+    
+    public void analyzeSyntax(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -170,7 +178,7 @@ public class ShowAlterStmt extends ShowStmt {
                     throw new AnalysisException("Should order by column");
                 }
                 SlotRef slotRef = (SlotRef) orderByElement.getExpr();
-                int index = TabletsProcDir.analyzeColumn(slotRef.getColumnName());
+                int index = SchemaChangeProcNode.analyzeColumn(slotRef.getColumnName());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
@@ -179,12 +187,10 @@ public class ShowAlterStmt extends ShowStmt {
         if (limitElement != null) {
             limitElement.analyze(analyzer);
         }
-
-        // check auth when get job info
-        handleShowAlterTable(analyzer);
     }
-
-    private void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, UserException {
+    
+    
+    public void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, UserException {
         final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
         Database db = analyzer.getCatalog().getDb(dbName);
         if (db == null) {
@@ -215,7 +221,7 @@ public class ShowAlterStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW ALTER ").append(type.name()).append(" ");
+        sb.append("SHOW ALTER TABLE ").append(type.name()).append(" ");
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("FROM `").append(dbName).append("`");
         }
@@ -232,12 +238,13 @@ public class ShowAlterStmt extends ShowStmt {
             }
         }
 
-        if (limitElement.hasLimit()) {
-            sb.append(" LIMIT ").append(limitElement);
+        if (limitElement != null && limitElement.hasLimit()) {
+            sb.append(" LIMIT ").append(limitElement.getLimit());
             if (limitElement.hasOffset()) {
                 sb.append(" OFFSET ").append(limitElement.getOffset());
             }
         }
+        LOG.info("AlterSQL '{}'", sb.toString());
         return sb.toString();
     }
 
