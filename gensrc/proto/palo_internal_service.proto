@@ -36,4 +36,6 @@ service PInternalService {
     rpc tablet_writer_cancel(doris.PTabletWriterCancelRequest) returns (doris.PTabletWriterCancelResult);
     rpc trigger_profile_report(doris.PTriggerProfileReportRequest) returns (doris.PTriggerProfileReportResult);
     rpc get_info(doris.PProxyRequest) returns (doris.PProxyResult);
+    rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
+    rpc update_cache(PUpdateCacheRequest) returns (PUpdateCacheResult);
 };
