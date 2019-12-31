@@ -221,6 +221,29 @@ void PInternalServiceImpl<T>::get_info(
     Status::OK().to_protobuf(response->mutable_status());
 }
 
+template<typename T>
+void update_cache(google::protobuf::RpcController* controller,
+        const PUpdateCacheRequest* request,
+        PUpdateCacheResult* response,
+        google::protobuf::Closure* done) {
+    _exec_env->result_cache()->update(request, response);
+}
+
+template<typename T>
+void fetch_cache(google::protobuf::RpcController* controller,
+        const PFetchCacheRequest* request,
+        PUpdateCacheRequest* result,
+        google::protobuf::Closure* done) {
+    _exec_env->result_cache()->fetch(request, result);
+}
+
+template<typename T>
+void clear_cache(google::protobuf::RpcController* controller,
+        const PUpdateCacheRequest* request,
+        PUpdateCacheResult* response,
+        google::protobuf::Closure* done) {
+    _exec_env->result_cache()->clear();
+}
 
 template class PInternalServiceImpl<PBackendService>;
 template class PInternalServiceImpl<palo::PInternalService>;
