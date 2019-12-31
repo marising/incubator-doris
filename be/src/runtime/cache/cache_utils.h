@@ -86,9 +86,9 @@ struct PartitionStat : SqlStat{
 		return true;
 	}
 	void set_update(int64& last_ver, long& last_ver_time){
-		last_version = last_ver;
-		last_version_time = last_ver_time;
 		super.set_update();
+		last_version = last_ver;
+		last_version_time = last_ver_time;		
 	}
 }
 

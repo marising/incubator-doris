@@ -24,6 +24,7 @@
 #include <map>
 #include <list>
 #include <iostream>
+#include <mutex>
 #include <exception>
 #include "common/config.h"
 #include "runtime/mem_tracker.h"
@@ -43,16 +44,22 @@ public:
 	}
 	virtual ~DataCache() {
 	}
-	void update(const PUpdateCacheValue& request, PUpdateCacheResult* response);
+	void update(const PUpdateCacheValue* request, PUpdateCacheResult* response);
 	void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
-	void remove(const PUniqueId& sql_key);
-	void remove(ResultNode* result_node);
 	bool contains(const PUniqueId& sql_key);
-	void prune();
 	void clear();
+	size_t get_cache_size(){
+		return _cache_size;
+	}
 private:
+	void prune();
+	void remove(ResultNode* result_node);
+
+	//At the same time, multithreaded reading
+	//Single thread updating and cleaning(only single be, Fe is not affected)
+	mutable std::shared_mutex _cache_mtx;
 	ResultNodeMap _node_map;
-	ResultNodeList _node_list;
+	ResultNodeList _node_list;	
 	size_t _cache_size;
 	size_t _max_size;
 	double _elasticity_size;

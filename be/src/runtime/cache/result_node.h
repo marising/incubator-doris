@@ -74,12 +74,7 @@ public:
 	const CacheState& get_stat() {
 		return _cache_stat;
 	}
-	void clear() {
-		SAFE_DELETE(_prow_batch);
-		_partition_key = 0;
-		_batch_byte_size = 0;		
-		_cache_stat.reset();
-	}
+	void clear();
 private:
 	int64 _partition_key;
 	PRowBatch* _prow_batch;
@@ -106,13 +101,8 @@ public:
 		clear();
 		_partition_batch_list = new PartitionRowBatchList();
 	}
-	void clear(){
-		SAFE_DELETE(_partition_batch_list);
-		_prev = NULL;
-		_next = NULL;
-		_sqlKey.hi = 0;
-		_sqlKey.lo = 0;		
-	}
+	void clear();
+
 	PCacheStatus update_batches(const PUpdateCacheRequest* request, int32& update_size, bool& update_first);
 	PCacheStatus get_batches(const PFetchCacheRequest* request, List<PartitionRowBatch*>& rowBatchList, bool& hit_first);
 	size_t prune_first();
@@ -206,13 +196,8 @@ public:
 	}
 	virtual ~ResultNodeList() {
 		clear();
-	}
-	void clear() {
-		_head = NULL;
-		_tail = NULL;
-		_node_size = 0;
-		_memory_size = 0;
-	}
+	}	
+	void clear();
 	//TODO:Use object pool to manage ResultNode and PartitionRowBatch
 	ResultNode* new_node(){
 		return new ResultNode();

@@ -156,6 +156,43 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<PUpdateCacheResult> updateCache(
+            TNetworkAddress address, PUpdateCacheRequest request) throws RpcException{
+        try {
+            PBackendService service = getProxy(address);
+            return service.updateCache(request);
+        } catch (Throwable e) {
+            LOG.warn("update cache catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PFetchCacheResult> fetchCache(
+            TNetworkAddress address, PFetchCacheRequest request) throws RpcException {
+        try {
+            PBackendService service = getProxy(address);
+            return service.fetch_cache(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch cache catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PUpdateCacheResult> clearCache(
+            TNetworkAddress address, PUpdateCacheRequest request) throws RpcException {
+        try {
+            PBackendService service = getProxy(address);
+            return service.clear_cache(request);
+        } catch (Throwable e) {
+            LOG.warn("clear cache catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+
     public Future<PTriggerProfileReportResult> triggerProfileReportAsync(
             TNetworkAddress address, PTriggerProfileReportRequest request) throws RpcException {
         try {

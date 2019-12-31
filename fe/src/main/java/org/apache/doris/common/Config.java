@@ -934,5 +934,22 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean force_do_metadata_checkpoint = false;
+
+    /*
+     * If set to true, the fe will get data from be cache.
+     */
+    @ConfField
+    public static boolean enable_inner_chache = false;
+
+    /*
+    *  Set the min delta time from table last version datetime to now of query, the unit is minute.
+     */
+    @ConfField
+    public static int last_version_min_delta_time = 120;
+
+    /*
+     * Set the maximum number of results for a query, default 1000
+     */
+    @ConfField static int cache_result_max_row_count = 1000;
 }
 

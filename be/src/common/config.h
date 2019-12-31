@@ -496,6 +496,12 @@ namespace config {
     // this is a self protection to avoid too many txns saving in manager
     CONF_Int64(max_runnings_transactions, "200");
 
+    // Set max cache's size of query results, 
+    // the unit is M byte, default 256M, recommend >=1024M
+    CONF_Int32(cache_max_size, "256");    
+
+    //Cache memory is pruened when reach cache_max_size + cache_elasticity_size
+    CONF_Int32(cache_elasticity_size, "64");
 } // namespace config
 
 } // namespace doris

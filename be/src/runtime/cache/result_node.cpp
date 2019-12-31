@@ -23,7 +23,7 @@ size_t PartitionRowBatch::set_row_batch(const int64& last_version, const long& l
 	if (prow_batch == NULL) {
 		return 0;
 	}    
-	SAFE_DELETE(_prow_batch);
+	this.clear();
 	_prow_batch = PRowBatch.new();
 	std::stringstream stream;
 	prow_batch->SerializeToOstream(&stream);
@@ -38,6 +38,13 @@ bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& la
     if (!_cache_stat.check_match(last_version, last_version_time)) return false;
     _cache_stat.set_read();
 	return true;
+}
+
+void PartitionRowBatch::clear(){
+    SAFE_DELETE(_prow_batch);
+	_partition_key = 0;
+	_batch_byte_size = 0;		
+	_cache_stat.reset();
 }
 
 PCacheStatus ResultNode::update_batches(const PUpdateCacheRequest* request, int32& update_size, bool& update_first) {
@@ -153,6 +160,18 @@ size_t ResultNode::prune_first(){
    return prune_size;
 }
 
+void ResultNode::clear(){
+    for (auto it = _batch_list.begin(); it != _batch_list.end(); it++) {
+        it->clear();
+    }
+    _batch_list.clear();
+    SAFE_DELETE(_batch_list);
+    SAFE_DELETE(_prev);
+    SAFE_DELETE(_next);
+    _sqlKey.hi = 0;
+    _sqlKey.lo = 0;		
+}
+
 /*
 * Remove the tail node of link
 */
@@ -195,6 +214,17 @@ void ResultNode::push(ResultNode* node) {
         _tail = node;
     }
     _node_size++;		
+}
+
+void ResultNode::clear() {
+    while(_head){
+        ResultNode* tmp_node = _head->next;
+        _head->clear();
+        SAFE_DELETE(_head);
+        _head = tmp_node;
+    }
+    _node_size = 0;
+    _memory_size = 0;
 }
 
 }
