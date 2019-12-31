@@ -43,6 +43,18 @@ public interface PBackendService {
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 86400000)
     Future<PFetchDataResult> fetchDataAsync(PFetchDataRequest request);
 
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "update_cache",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
+    Future<PUpdateCacheResult>  updateCache(PUpdateCacheRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "fetch_cache",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
+    Future<PFetchCacheResult> fetchCache(PFetchCacheRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "clear_cache",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
+    Future<PUpdateCacheResult> clearCache(PUpdateCacheRequest request);
+
     @ProtobufRPC(serviceName = "PBackendService", methodName = "trigger_profile_report",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
     Future<PTriggerProfileReportResult> triggerProfileReport(PTriggerProfileReportRequest request);
