@@ -1112,5 +1112,33 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_spark_load = false;
 
+    /*
+     * If set to true, fe will enable sql result cache
+     *                              case1   case2   case3   case4
+     * enable_sql_cache             false   true    true    false
+     * enable_partition_cache       false   false   true    true
+     * last_version_interval_second xx      60      3600    3600
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_sql_cache = false;
+
+    /*
+     * If set to true, fe will get data from be cache.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_partition_cache = false;
+
+    /*
+     *  Minimum interval between last version when caching results
+     *  This parameter distinguishes between offline and real-time updates
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int last_version_interval_second = 3600;
+
+    /*
+     * Set the maximum number of rows that can be cached, default 1000
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_result_max_row_count = 1000;
 }
 

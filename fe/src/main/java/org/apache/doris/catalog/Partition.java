@@ -94,6 +94,8 @@ public class Partition extends MetaObject implements Writable {
     private long visibleVersion;
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
+    @SerializedName(value = "visibleVersionTime")
+    private long visibleVersionTime;
     @SerializedName(value = "nextVersion")
     private long nextVersion;
     @SerializedName(value = "nextVersionHash")
@@ -113,6 +115,7 @@ public class Partition extends MetaObject implements Writable {
         this.baseIndex = baseIndex;
 
         this.visibleVersion = PARTITION_INIT_VERSION;
+        this.visibleVersionTime = System.currentTimeMillis();
         this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;
@@ -147,8 +150,7 @@ public class Partition extends MetaObject implements Writable {
      * the restored partition version info》
      */
     public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
-        this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
+        this.SetVisibleVersion(visibleVersion, visibleVersionHash);
         this.nextVersion = this.visibleVersion + 1;
         this.nextVersionHash = Util.generateVersionHash();
         this.committedVersionHash = visibleVersionHash;
@@ -157,8 +159,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
-        this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
+        this.SetVisibleVersion(visibleVersion, visibleVersionHash);
         if (MetaContext.get() != null) {
             // MetaContext is not null means we are in a edit log replay thread.
             // if it is upgrade from old palo cluster, then should update next version info
@@ -181,8 +182,25 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersion;
     }
 
+    public long getVisibleVersionTime(){
+        return visibleVersionTime;
+    }
+
     public long getVisibleVersionHash() {
         return visibleVersionHash;
+    }
+
+    private void SetVisibleVersion(long visibleVersion, long visibleVersionHash){
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = System.currentTimeMillis();
+        this.visibleVersionHash = visibleVersionHash;
+    }
+
+    //Just for unit test
+    public void SetVisibleVersion(long visibleVersion, long visibleVersionHash, long visibleVersionTime){
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.visibleVersionHash = visibleVersionHash;
     }
 
     public PartitionState getState() {
@@ -344,6 +362,8 @@ public class Partition extends MetaObject implements Writable {
         }
 
         out.writeLong(visibleVersion);
+        //TODO: read and write format
+        //out.writeLong(visibleVersionTime);
         out.writeLong(visibleVersionHash);
 
         out.writeLong(nextVersion);
