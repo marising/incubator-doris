@@ -536,6 +536,15 @@ namespace config {
     // Whether to continue to start be when load tablet from header failed.
     CONF_Bool(ignore_load_tablet_failure, "false");
 
+    // Set max cache's size of query results, the unit is M byte
+    CONF_Int32(cache_max_size, "256"); 
+
+    //Cache memory is pruened when reach cache_max_size + cache_elasticity_size
+    CONF_Int32(cache_elasticity_size, "128");
+
+    //Maximum number of cache partitions corresponding to a SQL
+    CONF_Int32(cache_max_partition_count, "1024");
+    
 } // namespace config
 
 } // namespace doris

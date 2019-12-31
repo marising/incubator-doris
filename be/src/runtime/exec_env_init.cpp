@@ -35,6 +35,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
+#include "runtime/cache/result_cache.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/parse_util.h"
@@ -65,11 +66,15 @@
 
 namespace doris {
 
-Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
+Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {    
     return env->_init(store_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
+    //Only init once before be destroyed
+    if (_is_init) {
+        return Status::OK();
+    }
     _store_paths = store_paths;
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _metrics = DorisMetrics::instance()->metrics();
@@ -91,6 +96,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
+    _result_cache = new ResultCache(config::cache_max_size, config::cache_elasticity_size);
     _master_info = new TMasterInfo();
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
@@ -124,6 +130,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _is_init = true;
     return Status::OK();
 }
 
@@ -208,6 +215,10 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
 }
 
 void ExecEnv::_destory() {
+    //Only destroy once after init
+    if (!_is_init) {
+        return;
+    }
     delete _brpc_stub_cache;
     delete _load_stream_mgr;
     delete _load_channel_mgr;
@@ -219,6 +230,7 @@ void ExecEnv::_destory() {
     delete _etl_job_mgr;
     delete _master_info;
     delete _fragment_mgr;
+    delete _result_cache;
     delete _cgroups_mgr;
     delete _etl_thread_pool;
     delete _thread_pool;
@@ -237,6 +249,7 @@ void ExecEnv::_destory() {
     delete _external_scan_context_mgr;
     delete _heartbeat_flags;
     _metrics = nullptr;
+    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

@@ -17,11 +17,8 @@
 
 #include <sys/types.h>
 #include <unistd.h>
-
 #include "util/doris_metrics.h"
-
 #include "env/env.h"
-
 #include "util/debug_util.h"
 #include "util/file_utils.h"
 #include "util/system_metrics.h"
@@ -160,6 +157,10 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
 
     REGISTER_DORIS_METRIC(tablet_cumulative_max_compaction_score);
     REGISTER_DORIS_METRIC(tablet_base_max_compaction_score);
+
+    REGISTER_DORIS_METRIC(cache_memory_total);
+    REGISTER_DORIS_METRIC(cache_sql_total);
+    REGISTER_DORIS_METRIC(cache_partition_total);
 
     REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
     REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
