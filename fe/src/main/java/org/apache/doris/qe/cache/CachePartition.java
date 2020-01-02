@@ -24,6 +24,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.PFetchDataRequest;
 import org.apache.doris.system.Backend;
 
+import java.lang.reflect.Array;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -36,8 +37,9 @@ public class CachePartition {
     private static final int VIRTUAL_NODES = 10;
     private List<Long> realNodes = new LinkedList<Long>();
     private SortedMap<Long, Backend> virtualNodes = new TreeMap<Long, Backend>();
-    private static CachePartition cachePartition;
     private MessageDigest msgDigest;
+
+    private static CachePartition cachePartition;
 
     public static CachePartition getInstance() {
         if (cachePartition == null) {
@@ -93,5 +95,32 @@ public class CachePartition {
             int hash = getHash(virtualNodeName);
             virtualNodes.put(hash, backend);
         }
+    }
+
+    public List<Backend> getAllRealNode(){
+        List<Backend> beList = Lists.newArrayList();
+        for(Long id : realNodes){
+            Backend be = virtualNodes.get(id);
+            beList.add(be);
+        }
+        return beList;
+    }
+
+    public PUniqueId getMd5(String str){
+        msgDigest.reset();
+        final byte[] digest = msgDigest.digest(str.getBytes());
+        PUniqueId key;
+        key.lo = getLong(digest, 0);
+        key.hi = getLong(digest, 8);
+        return key;
+    }
+
+
+    public final long getLong(final byte[] array, final int offset) {
+        long value = 0;
+        for (int i = 0; i < 8; i++) {
+            value = ((value << 8) | (array[offset+i] & 0xFF));
+        }
+        return value;
     }
 }

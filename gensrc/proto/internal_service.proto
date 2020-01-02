@@ -148,6 +148,7 @@ message PFetchDataResult {
 
 //Add message definition to fetch and update cache
 enum PCacheStatus {    
+    DEFAULT = 0;
     UPDATE_SUCCESS = 1;
     FETCH_SUCCESS = 2;
     PARAM_ERROR = 3;

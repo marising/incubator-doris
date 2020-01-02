@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import jdk.jfr.Frequency;
 import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.*;
 import org.apache.doris.common.Config;
@@ -25,7 +26,9 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -37,23 +40,39 @@ import java.util.logging.Logger;
 
 public class CacheAnalyzer {
     private static final Logger LOG = LogManager.getLogger(CacheAnalyzer.class);
+
     public enum CacheModel{
         None,
         Table,
         Partition
     }
+    private String sqlKey;
     private CacheModel cacheModel;
-    private CachePartition.CacheResult cacheResult;
+    private CacheProxy.FetchCacheResult cacheResult;
     private StatementBase parsedStmt;
     private SelectStmt selectStmt;
     private SelectStmt nokeySelectStmt;
     private SelectStmt rewriteSelectStmt;
     private List<ScanNode> scanNodes;
-    CompoundPredicate partitionKeyPredicate;
-
+    private OlapScanNode olapNode;
+    private OlapTable olapTable;
+    private RangePartitionInfo partitionInfo;
+    private Column partColumn;
+    private CompoundPredicate partitionKeyPredicate;
+    private List<RowBatch> rowBatchList;
     private boolean isHitCache;
 
-    public boolean getIsHitCache() { return isHitCache; }
+    public boolean getIsHitCache() {
+        return isHitCache;
+    }
+
+    public CacheModel getCacheModel() {
+        return cacheModel;
+    }
+
+    public void setCacheModel(CacheModel cacheModel) {
+        this.cacheModel = cacheModel;
+    }
 
     public CacheAnalyzer(ConnectContext context, StmtExecutor executor, Analyzer analyzer, Planner planner) {
         parsedStmt = executor.getParsedStmt();
@@ -61,20 +80,41 @@ public class CacheAnalyzer {
         cacheResult = null;
     }
 
-    public CachePartition.CacheResult getCache() {
-        cacheModel = checkCacheModel();
+    public CacheProxy.FetchCacheResult getCache() {
+        checkCacheModel();
         String sqlKey;
-        if (cacheModel == CacheModel.Table) {
-            sqlKey = getMd5(parsedStmt.toSql());
-            cacheResult = CachePartition.getInstance().getCacheData(sqlKey);
-        } else if (cacheModel == CacheModel.Partition) {
+        CachePartition cachePart = CachePartition.getInstance();
+        CacheProxy proxy = new CacheProxy();
+        CacheProxy.FetchCacheRequest request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
+        if (getCacheModel() == CacheModel.Table) {
+            cacheResult = proxy.fetchCache(request, 1000);
+        } else if (getCacheModel() == CacheModel.Partition) {
             nokeySelectStmt = (SelectStmt) selectStmt.clone();
             rewriteNoKeySelectStmt(nokeySelectStmt, partitionKeyPredicate);
-            sqlKey = getMd5(selectStmt.toSql());
-            cacheResult = CachePartition.getInstance().getCacheData(sqlKey);
+            cacheResult = proxy.fetchCache(request, 10000);
         }
         return cacheResult;
     }
+
+    //Append rowBatch to list,then updateCache
+    public void appendRowBatch(RowBatch rowBatch){
+        rowBatchList.add(rowBatch);
+    }
+
+    public void updateCache(){
+        MySqlRowBuffer mysqlBuffer = new MySqlRowBuffer(selectStmt.getResultExprs(), selectStmt.getColLabels(),
+                partColumn);
+        for (RowBatch row : rowBatchList) {
+            mysqlBuffer.appendRowBatch(row);
+        }
+        CacheProxy.UpdateCacheRequest updateRequest = mysqlBuffer.getUpdateRequest();
+        for (CacheProxy.UpdateCacheValue value : updateRequest.getValueList()) {
+            long partKey = value.getPartitionKey();
+        }
+        CacheProxy proxy = new CacheProxy();
+        proxy.updateCache(updateRequest);
+    }
+
     /**
      * Types of SQL that can be cached
      * 1、Only Olap table
@@ -103,9 +143,9 @@ public class CacheAnalyzer {
             if (!(node instanceof OlapScanNode)) {
                 return CacheModel.None;
             }
-            OlapScanNode olapNode = (OlapScanNode) node;
-            OlapTable olapTable = olapNode.getOlapTable();
-            long maxTime = getLastUpdateTime(olapTable);
+            OlapScanNode oNode = (OlapScanNode) node;
+            OlapTable oTable = oNode.getOlapTable();
+            long maxTime = getLastUpdateTime(oTable);
             tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
         }
         Collections.sort(tblTimeList, Collections.reverseOrder());
@@ -120,18 +160,18 @@ public class CacheAnalyzer {
                 return CacheModel.None;
             }
         }
-        OlapScanNode olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
-        OlapTable olapTable = olapNode.getOlapTable();
+        olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
+        olapTable = olapNode.getOlapTable();
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
             return CacheModel.None;
         }
-        RangePartitionInfo partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
+        partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
             return CacheModel.None;
         }
-        Column partColumn = columns.get(0);
+        partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(selectStmt, partColumn)) {
             return CacheModel.None;
