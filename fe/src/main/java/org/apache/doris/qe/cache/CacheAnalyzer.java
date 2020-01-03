@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import jdk.jfr.Frequency;
 import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.*;
 import org.apache.doris.common.Config;
@@ -28,7 +27,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
 
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -40,6 +38,10 @@ import java.util.logging.Logger;
 
 public class CacheAnalyzer {
     private static final Logger LOG = LogManager.getLogger(CacheAnalyzer.class);
+
+    public SelectStmt getRewriteSelectStmt() {
+        return rewriteSelectStmt;
+    }
 
     public enum CacheModel{
         None,
@@ -59,6 +61,7 @@ public class CacheAnalyzer {
     private RangePartitionInfo partitionInfo;
     private Column partColumn;
     private CompoundPredicate partitionKeyPredicate;
+    private PartitionRange partitionRange;
     private List<RowBatch> rowBatchList;
     private boolean isHitCache;
 
@@ -81,18 +84,39 @@ public class CacheAnalyzer {
     }
 
     public CacheProxy.FetchCacheResult getCache() {
-        checkCacheModel();
+        if(checkCacheModel() == CacheModel.None){
+            return cacheResult;
+        }
         String sqlKey;
         CachePartition cachePart = CachePartition.getInstance();
         CacheProxy proxy = new CacheProxy();
-        CacheProxy.FetchCacheRequest request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
+        CacheProxy.FetchCacheRequest request;
         if (getCacheModel() == CacheModel.Table) {
+             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             cacheResult = proxy.fetchCache(request, 1000);
         } else if (getCacheModel() == CacheModel.Partition) {
             nokeySelectStmt = (SelectStmt) selectStmt.clone();
+            request = new CacheProxy.FetchCacheRequest(nokeySelectStmt.toSql());
+            //request.addParam();
             rewriteNoKeySelectStmt(nokeySelectStmt, partitionKeyPredicate);
+            //List<Long> keyRangeList = getPartitionRange(this.partitionKeyPredicate);
+            PartitionRange range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
+            if( !range.analytics() ){
+                return cacheResult;
+            }
+            for(PartitionRange.PartitionSingle single : range.getSingleList()){
+                request.addParam(single.getPartitionKey(), single.getPartition().getVisibleVersion(),
+                        single.getPartition().getVisibleVersionTime());
+            }
             cacheResult = proxy.fetchCache(request, 10000);
+            for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()){
+                range.setCacheFlag(value.getPartitionKey());
+            }
+            CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
+            rewriteSelectStmt = (SelectStmt) selectStmt.clone();
+            rewriteScanRangeWhereClause(getRewriteSelectStmt(), partitionKeyPredicate, newPredicate);
         }
+        isHitCache = true;
         return cacheResult;
     }
 
@@ -186,7 +210,7 @@ public class CacheAnalyzer {
         return CacheModel.Partition;
     }
 
-    private void rewriteScanRangeWhereClause(Expr expr, CompoundPredicate predicate, CompoundPredicate cachePredicate){
+    private void rewriteScanRangeWhereClause(Expr expr, CompoundPredicate predicate, CompoundPredicate newPredicate){
 
     }
 
@@ -217,8 +241,6 @@ public class CacheAnalyzer {
         }
     }
 
-
-
     private void getPartitionKeyFromSelectStmt(SelectStmt selectStmt, Column partColumn,
                                                             List<CompoundPredicate> compoundPredicates) {
         getPartitionKeyFromWhereClause(selectStmt.getWhereClause(), partColumn, compoundPredicates);
@@ -234,10 +256,11 @@ public class CacheAnalyzer {
         }
     }
 
-    /* Only support case 1
-    * 1.key >= a and key <= b
-    * 2.key = a or key = b
-    * 3.key in(a,b,c)
+    /**
+     * Only support case 1
+     * 1.key >= a and key <= b
+     * 2.key = a or key = b
+     * 3.key in(a,b,c)
      */
     private void getPartitionKeyFromWhereClause(Expr expr, Column partColumn,
                                                              List<CompoundPredicate> compoundPredicates) {

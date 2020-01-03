@@ -62,6 +62,8 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
@@ -541,33 +543,50 @@ public class StmtExecutor {
             handleExplainStmt(explainString);
             return;
         }
-        coord = new Coordinator(context, analyzer, planner);
 
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
-                       new QeProcessorImpl.QueryInfo(context, originStmt, coord));
-
-        coord.exec();
-
-        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
-        // so We need to send fields after first batch arrived
-
-        // send result
+        //Get result
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
         sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+
+        //Get rowbatch from cache
+        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
+        CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
+        if ( cacheAnalyzer.getIsHitCache()) {
+            for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
+                channel.sendOnePacket(value.getRowBatch().getRows());
+            }
+            context.updateReturnRows(value.getRowBatch().getRows().size());
+            //get rewrite select statment
+            SelectStmt newSelectStmt = cacheAnalyzer.getRewriteSelectStmt();
+            // create plan again
+            planner = new Planner();
+            planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
+        }
+
+        coord = new Coordinator(context, analyzer, planner);
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+        coord.exec();
+        
+        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
+        // so We need to send fields after first batch arrived
         while (true) {
             batch = coord.getNext();
             if (batch.getBatch() != null) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
-                }            
-                context.updateReturnRows(batch.getBatch().getRows().size());    
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
+                if(cacheAnalyzer.getIsHitCache()){
+                    cacheAnalyzer.appendRowBatch(batch);
+                }
             }
             if (batch.isEos()) {
                 break;
             }
         }
-
+        cacheAnalyzer.updateCache();
         statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
     }
