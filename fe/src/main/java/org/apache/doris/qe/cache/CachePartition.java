@@ -17,19 +17,22 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.common.Status;
-import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.SimpleScheduler;
-import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.rpc.PFetchDataRequest;
 import org.apache.doris.system.Backend;
+import org.apache.doris.proto.PUniqueId;
 
-import java.lang.reflect.Array;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.*;
-import java.util.logging.LogManager;
-import java.util.logging.Logger;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.LinkedList;
+import java.util.TreeMap;
+
 
 public class CachePartition {
     private static final Logger LOG = LogManager.getLogger(CachePartition.class);
@@ -37,7 +40,6 @@ public class CachePartition {
     private static final int VIRTUAL_NODES = 10;
     private List<Long> realNodes = new LinkedList<Long>();
     private SortedMap<Long, Backend> virtualNodes = new TreeMap<Long, Backend>();
-    private MessageDigest msgDigest;
 
     private static CachePartition cachePartition;
 
@@ -48,10 +50,8 @@ public class CachePartition {
         return cachePartition;
     }
 
-    protected CachePartition() throws NoSuchAlgorithmException {
-        msgDigest = MessageDigest.getInstance("MD5");
+    protected CachePartition() {
     }
-
 
     /**
      * Using the consistent hash and the hi part of sqlkey to get the backend node
@@ -92,8 +92,8 @@ public class CachePartition {
         realNodes.add(backendID);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
             String virtualNodeName = backendID.toString() + "::" + String.valueOf(i);
-            int hash = getHash(virtualNodeName);
-            virtualNodes.put(hash, backend);
+            Long hashCode = new Long((long)virtualNodeName.hashCode());
+            virtualNodes.put(hashCode, backend);
         }
     }
 
@@ -106,21 +106,4 @@ public class CachePartition {
         return beList;
     }
 
-    public PUniqueId getMd5(String str){
-        msgDigest.reset();
-        final byte[] digest = msgDigest.digest(str.getBytes());
-        PUniqueId key;
-        key.lo = getLong(digest, 0);
-        key.hi = getLong(digest, 8);
-        return key;
-    }
-
-
-    public final long getLong(final byte[] array, final int offset) {
-        long value = 0;
-        for (int i = 0; i < 8; i++) {
-            value = ((value << 8) | (array[offset+i] & 0xFF));
-        }
-        return value;
-    }
 }

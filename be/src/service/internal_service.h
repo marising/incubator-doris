@@ -21,6 +21,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"
 #include "util/thread_pool.hpp"
+#include "runtime/cache/result_cache.h"
 
 namespace brpc {
 class Controller;
@@ -93,7 +94,7 @@ public:
 
     void fetch_cache(google::protobuf::RpcController* controller,
         const PFetchCacheRequest* request,
-        PUpdateCacheRequest* result,
+        PFetchCacheResult* result,
         google::protobuf::Closure* done) override;
 
     void clear_cache(google::protobuf::RpcController* controller,

@@ -17,10 +17,12 @@
 
 #include <gtest/gtest.h>
 #include <boost/shared_ptr.hpp>
+#include "util/logging.h"
 #include "util/cpu_info.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/buffer_control_block.h"
-#include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
 
@@ -30,6 +32,7 @@ public:
 
     }
     virtual ~ResultCacheTest() {
+//        clear();
     }
 protected:
     virtual void SetUp() {
@@ -37,167 +40,195 @@ protected:
 
 private:
     void init_default(){
-        this.init(16,4);
+        LOG(WARNING) << "init test default\n";
+        init(16,4);
     }
     void init(int max_size, int ela_size);
     void clear();
-    PCacheStatus init_batch_data(int sql_num,int part_num,int batch_num);
+    void init_batch_data(int sql_num, int part_begin, int part_num, int batch_num);
     ResultCache* _cache;
     PUpdateCacheRequest* _update_request;
-    PUpdateCacheResult* _update_response
+    PUpdateCacheResult* _update_response;
     PFetchCacheRequest* _fetch_request;
-    PFetchCacheResult* _fetch_response;
+    PFetchCacheResult* _fetch_result;
 };
 
 void ResultCacheTest::init(int max_size, int ela_size){
+    LOG(WARNING) << "init test\n";
     _cache = new ResultCache(max_size, ela_size);
     _update_request = new PUpdateCacheRequest();
     _update_response = new PUpdateCacheResult();
     _fetch_request = new PFetchCacheRequest();
-    _fetch_response = new PFetchCacheResult();
+    _fetch_result = new PFetchCacheResult();
 }
 
 void ResultCacheTest::clear(){
+    _cache->clear();    
     SAFE_DELETE(_cache);
     SAFE_DELETE(_update_request);
     SAFE_DELETE(_update_response);
     SAFE_DELETE(_fetch_request);
-    SAFE_DELETE(_fetch_response);
+    SAFE_DELETE(_fetch_result);
 }
 
-PCacheStatus ResultCacheTest::init_batch_data(int sql_num,int part_num,int batch_num) {
-    //sql_id
+void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo){
+    sql_key->set_hi(hi);
+    sql_key->set_lo(lo);
+}
+
+void ResultCacheTest::init_batch_data(int sql_num, int part_begin, int part_num, int batch_num) {
+    LOG(WARNING) << "init data\n";
     for (int i = 1; i < sql_num + 1; i++) {
-        PUniqueId sql_id;
-        sql_id.lo = i;
-        sql_id.hi = i;
-        request->set_sql_id(sql_id);
+        LOG(WARNING) << "Sql:" << i;
+        set_sql_key(_update_request->mutable_sql_key(), i, i);
         //partition
-        for (int j = 1; j < part_num + 1; j++) {
-            PUpdateCacheValue* value = request->add_value();
+        for (int j = part_begin; j < part_begin + part_num; j++) {
+            LOG(WARNING) << "Part:" << j;
+            PUpdateCacheValue* value = _update_request->add_value();
             value->set_partition_key(j);
             value->set_last_version(j);
-            value->last_version_time(j);
+            value->set_last_version_time(j);
             //row batch size
             for(int k = 1; k < batch_num + 1; k++) {
-                PRowBatch* batch = value->add_row_batch();
+                LOG(WARNING) << "Row:" << k;
+                PRowBatch* batch = value->mutable_row_batch();
+                batch->set_num_rows(1);
+                batch->add_row_tuples(1);
+                batch->add_tuple_offsets(1);
                 batch->set_tuple_data("0123456789abcdef"); //16 byte
+                batch->set_is_compressed(false);
+                LOG(WARNING) << "Set Row:" << k;
             }
         }
     }
-    return cache.update(&request, response);
+    _cache->update(_update_request, _update_response);
 }
 
 TEST_F(ResultCacheTest, update_data) {
-    this.init_default();
-    PCacheStatus st = init_batch_data(1, 1, 1);
-    ASSERT_TRUE(st == PCacheStatus::UPDATE_SUCCESS);
+    init_default();
+    init_batch_data(1, 1, 1, 1);
+
+    ASSERT_TRUE(_update_response->status() == PCacheStatus::UPDATE_SUCCESS);
+
+    clear();
 }
 
 TEST_F(ResultCacheTest, fetch_simple_data) {
-    this.init_default();
-    PCacheStatus st = init_batch_data(1, 1, 1);
-    PUniqueId sql_id;
-    sql_id.lo = 1;
-    sql_id.hi = 1;
-    _fetch_request->set_sql_id(sql_id);
+    init_default();
+    init_batch_data(1, 1, 1, 1);
+
+    LOG(WARNING) << "finish init\n";
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
     PFetchCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     p1->set_last_version(1);
-    p1->last_version_time(1);
-    cache.fetch(_fetch_request, _fetch_result);
-
+    p1->set_last_version_time(1);
+    LOG(WARNING) << "begin fetch\n";
+    _cache->fetch(_fetch_request, _fetch_result);
+    LOG(WARNING) << "finish fetch1\n";
     ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
-    ASSERT_EQ(_fetch_result->row_batch_size(), 1);
-    this.clear();
+    ASSERT_EQ(_fetch_result->value_size(), 1);
+
+    LOG(WARNING) << "finish fetch2\n";
+    clear();
+    LOG(WARNING) << "finish fetch3\n";
 }
 
 TEST_F(ResultCacheTest, fetch_not_sqlid) {
-     this.init_default();
-    PCacheStatus st = init_batch_data(1, 1, 1);
-    PUniqueId sql_id;
-    sql_id.lo = 2;
-    sql_id.hi = 2;
-    _fetch_request->set_sql_id(sql_id);
+    init_default();
+    init_batch_data(1, 1, 1, 1);
+
+    set_sql_key(_fetch_request->mutable_sql_key(), 2, 2);
     PFetchCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     p1->set_last_version(1);
-    p1->last_version_time(1);
-    cache.fetch(_fetch_request, _fetch_result);
+    p1->set_last_version_time(1);
+    _cache->fetch(_fetch_request, _fetch_result);
     ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_SQL_KEY);
-    this.clear();
+
+    clear();
 }
 
 TEST_F(ResultCacheTest, fetch_range_data) {
-    this.init_default();
-    PCacheStatus st = init_batch_data(1, 3, 1);
-    PUniqueId sql_id;
-    sql_id.lo = 1;
-    sql_id.hi = 1;
-    _fetch_request->set_sql_id(sql_id);
+    init_default();
+    init_batch_data(1, 1, 3, 1);
+
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
     PFetchCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(2);
     p1->set_last_version(2);
-    p1->last_version_time(2);
+    p1->set_last_version_time(2);
     PFetchCacheParam* p2 = _fetch_request->add_param();
-    p1->set_partition_key(3);
-    p1->set_last_version(3);
-    p1->last_version_time(3);
-    cache.fetch(_fetch_request, _fetch_result);
+    p2->set_partition_key(3);
+    p2->set_last_version(3);
+    p2->set_last_version_time(3);
+    _cache->fetch(_fetch_request, _fetch_result);
 
     ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
-    ASSERT_EQ(_fetch_result->row_batch_size(), 2);
-    this.clear();
+    ASSERT_EQ(_fetch_result->value_size(), 2);
+
+    clear();
 }
 
 TEST_F(ResultCacheTest, fetch_invalid_key_range) {
-     this.init_default();
-    PCacheStatus st = init_batch_data(1, 3, 1);
-    PUniqueId sql_id;
-    sql_id.lo = 1;
-    sql_id.hi = 1;
-    _fetch_request->set_sql_id(sql_id);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
-    p1->set_partition_key(2);
-    p1->set_last_version(2);
-    p1->last_version_time(2);
-    cache.fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_SQL_KEY);
-    this.clear();
-}
+    init_default();
+    init_batch_data(1, 2, 1, 1);
 
-TEST_F(ResultCacheTest, fetch_not_match_version) {
-    this.init_default();
-    PCacheStatus st = init_batch_data(1, 1, 1);
-    PUniqueId sql_id;
-    sql_id.lo = 1;
-    sql_id.hi = 1;
-    _fetch_request->set_sql_id(sql_id);
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
     PFetchCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
-    p1->set_last_version(2);
-    p1->set_last_version(2);
-    cache.fetch(_fetch_request, _fetch_result);
-
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
-    ASSERT_EQ(_fetch_result->row_batch_size(), 0);
-    this.clear();
+    p1->set_last_version(1);
+    p1->set_last_version_time(1);
+    
+    PFetchCacheParam* p2 = _fetch_request->add_param();
+    p2->set_partition_key(2);
+    p2->set_last_version(2);
+    p2->set_last_version_time(2);
+    
+    PFetchCacheParam* p3 = _fetch_request->add_param();
+    p3->set_partition_key(3);
+    p3->set_last_version(3);
+    p3->set_last_version_time(3);
+    _cache->fetch(_fetch_request, _fetch_result);
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::INVALID_KEY_RANGE);
+    ASSERT_EQ(_fetch_result->value_size(), 0);
+    clear();
 }
 
+TEST_F(ResultCacheTest, fetch_data_overdue) {
+    init_default();
+    init_batch_data(1, 1, 1, 1);
+
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
+    PFetchCacheParam* p1 = _fetch_request->add_param();
+    p1->set_partition_key(1);
+    //cache version is 1, request version is 2
+    p1->set_last_version(2);
+    p1->set_last_version_time(2);
+    _cache->fetch(_fetch_request, _fetch_result);
+
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::DATA_OVERDUE);    
+    ASSERT_EQ(_fetch_result->value_size(), 0);
+    
+    clear();
+}
+
+/*
 TEST_F(ResultCacheTest, prune_data) {
-    this.init(2,1);
-    PCacheStatus st = init_batch_data(4, 128, 256); // (12+16+4)*256*128*4 = 4M
+    init(2,1);
+    init_batch_data(4, 128, 256); // (12+16+4)*256*128*4 = 4M
     ASSERT_LT(_cache->get_cache_size(), 3*1024*1024); //cache_size must less 3M
-    this.clear();
 }
+*/
 
+/*
 TEST_F(ResultCacheTest, cache_clear) {
-    this.init_default();
-    PCacheStatus st = init_batch_data(1, 1, 1);
+    init_default();
+    init_batch_data(1, 1, 1, 1);
     _cache->clear();
     ASSERT_EQ(_cache->get_cache_size(),0); 
-    this.clear();
 }
+*/
 
 }
 
@@ -207,7 +238,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    // doris::init_glog("be-test");
+     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

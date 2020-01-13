@@ -35,6 +35,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
+#include "runtime/cache/result_cache.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/parse_util.h"

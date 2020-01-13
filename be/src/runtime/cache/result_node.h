@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_RESULT_NODE_H
-#define DORIS_BE_SRC_OLAP_RESULT_NODE_H
+#ifndef DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
+#define DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <sys/time.h>
 #include "common/config.h"
+#include "util/uid_util.h"
+#include "olap/olap_define.h"
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -36,7 +38,7 @@
 
 namespace doris {
 
-class PCacheStatus;
+enum PCacheStatus;
 class PFetchCacheParam;
 class PFetchCacheRequest;
 class PFetchCacheValue;
@@ -50,39 +52,41 @@ class PUpdateCacheResult;
 */
 class PartitionRowBatch{
 public:
-	PartitionRowBatch(int64 partition_key):_partition_key(partition_key),  _row_batch(NULL), _batch_byte_size(0) {
+	PartitionRowBatch(int64 partition_key) : _partition_key(partition_key),  _prow_batch(NULL), _data_size(0) {
+        LOG(WARNING)<<"PartitionRowBatch():" << _partition_key;
 	}
-	~PartitionRowBatch(){	
-		this.clear();
+
+	~PartitionRowBatch() {
 	}
 	
-	size_t set_row_batch(const int64& last_version, const long& last_version_time, PRowBatch* prow_batch);			
+	size_t set_row_batch(const int64& last_version, const long& last_version_time, const PRowBatch* prow_batch);
 	bool is_hit_cache(const int64& partition_key, const int64& last_version, const long& last_version_time);
+	void clear();
 
-	uint32 get_partition_key(){
+	int64 get_partition_key() const {
 		return _partition_key;
-	}	
-	RowBatch* get_row_batch(){
+	}
+
+	PRowBatch* get_row_batch() {
 		return _prow_batch;
 	}
-	size_t get_batch_size(){
-		return _batch_byte_size;
+
+	size_t get_data_size() {
+		return _data_size;
 	}
-	bool operator()(const PartitionRowBatch* left_node,const PartitionRowBatch* right_node) {
-		return left_node->get_partition_key() < right_node->get_partition_key();
+
+	const PartitionStat* get_stat() const{
+		return &_cache_stat;
 	}
-	const CacheState& get_stat() {
-		return _cache_stat;
-	}
-	void clear();
+
 private:
 	int64 _partition_key;
 	PRowBatch* _prow_batch;
-	size_t _batch_byte_size;
+	size_t _data_size;
 	PartitionStat _cache_stat;
-}
+};
 
-typedef List<PartitionRowBatch*> PartitionRowBatchList;
+typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
 typedef boost::unordered_map<int64, PartitionRowBatch*> PartitionRowBatchMap;	
 
 /*
@@ -90,139 +94,153 @@ typedef boost::unordered_map<int64, PartitionRowBatch*> PartitionRowBatchMap;
 */
 class ResultNode {
 public:
-	ResultNode(PUniqueId& sql_key) : _prev(NULL), _next(NULL) {	
-		set_sql_key(sql_key);
+    ResultNode() : _sql_key(0,0), _prev(NULL), _next(NULL) {
+    }
+
+	ResultNode(const UniqueId& sql_key) : _sql_key(sql_key), _prev(NULL), _next(NULL) {	
 	}
+
 	virtual ~ResultNode() {
-		clear();
 	}
 
 	void init(){
 		clear();
-		_partition_batch_list = new PartitionRowBatchList();
 	}
+
+	PCacheStatus update_partition(const PUpdateCacheRequest* request, size_t& update_size, bool& update_first);
+	PCacheStatus get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& rowBatchList, bool& hit_first);
+	size_t prune_first();
 	void clear();
 
-	PCacheStatus update_batches(const PUpdateCacheRequest* request, int32& update_size, bool& update_first);
-	PCacheStatus get_batches(const PFetchCacheRequest* request, List<PartitionRowBatch*>& rowBatchList, bool& hit_first);
-	size_t prune_first();
-
 	bool operator()(const ResultNode* left_node,const ResultNode* right_node) {
-		if (left_node->get_batch_size() == 0) {
+		if (left_node->get_partition_count() == 0) {
 			return true;
 		}
-		if (right_node->get_batch_size() == 0) {
+		if (right_node->get_partition_count() == 0) {
 			return false;
 		}
-		return left_node->get_first_stat().last_read_time < right_node->get_first_stat().last_read_time;
+		return left_node->get_first_stat()->last_read_time < right_node->get_first_stat()->last_read_time;
 	}
-	ResultNode* get_prev(){
+
+	ResultNode* get_prev() {
 		return _prev;
 	}
-	void set_prev(ResultNode* prev){
+
+	void set_prev(ResultNode* prev) {
 		_prev = prev;
 	}
-	ResultNode* get_next(){
+
+	ResultNode* get_next() {
 		return _next;
 	}
-	void set_next(ResultNode* next){
+
+	void set_next(ResultNode* next) {
 		_next = next;
 	}
-	void unlink() {
-		if (_next) {
-			_next->set_prev(_prev);
-		}
-		if (_prev) {
-			_prev->set_next(_next);
-		}
-		_next = NULL;
-		_prev = NULL;
+
+    void append(ResultNode* tail);
+
+	void unlink();
+	
+    size_t get_partition_count() const {
+		return _partition_list.size();
 	}
-	size_t get_batch_byte_size(){
-		return _batch_byte_size;
-	}
-	PUniqueId get_sql_key(){
+
+    size_t get_data_size() const {
+        return _data_size;
+    }
+
+	UniqueId get_sql_key() {
 		return _sql_key;
 	}
-	bool sql_key_null(){
+
+	bool sql_key_null() {
 		return (_sql_key.hi == 0  && _sql_key.lo == 0);
 	}
-	bool compare(PUniqueId& sql_key){
-		return (_sql_key.hi == sql_key.hi && _sql_key.lo == sql_key.lo);
+
+	void set_sql_key(const UniqueId& sql_key) {
+		_sql_key = sql_key;
 	}
-	void set_sql_key(PUniqueId& sql_key){
-		_sql_key.hi = sql_key.hi;
-		_sql_key.lo = sql_key.lo;
-	}
-	size_t get_batch_size(){
-		return _batch_list.size();
-	}
-	long get_first_batch_last_time(){
-		if (_batch_list.size() == 0) {
+
+	long first_partition_last_time() const{
+		if (_partition_list.size() == 0) {
 			return 0;
 		} else {
-			return _batch_list.begin()->get_stat()->last_read_time;
+            const PartitionRowBatch* first = *(_partition_list.begin());
+			return first->get_stat()->last_read_time;
 		}
 	}
-	const PartitionStat* get_first_stat(){
-		if( _batch_list.size() == 0){
+
+	const PartitionStat* get_first_stat() const {
+		if( _partition_list.size() == 0) {
 			return NULL;
 		} else {
-			return _batch_list.begin()->get_stat();
+			return (*(_partition_list.begin()))->get_stat();
 		}
 	}
-	const PartitionStat* get_last_stat(){
-		if (_batch_list.size() == 0) {
+
+	const PartitionStat* get_last_stat() const{
+		if (_partition_list.size() == 0) {
 			return NULL;
 		} else {
-			return _batch_list.back()->get_stat();
+			return (*(_partition_list.end()--))->get_stat();
 		}		
 	}
+
 private:
+	UniqueId _sql_key;
 	ResultNode* _prev;
 	ResultNode* _next;
-	PUniqueId _sql_key;
-	PartitionRowBatchList _batch_list;
-	PartitionRowBatchMap _batch_map;
-	//size_t _batch_byte_size;
+    size_t _data_size;
+	PartitionRowBatchList _partition_list;
+	PartitionRowBatchMap _partition_map;    
 };
 
-typedef boost::unordered_map<int64, ResultNode*> ResultNodeMap;	
+typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
 
 // a doubly linked list class
 class ResultNodeList {
 public:	
-	ResultNodeList() : _head(NULL), _tail(NULL), _node_size(0) {
+	ResultNodeList() : _head(NULL), _tail(NULL), _node_count(0) {
 	}
 	virtual ~ResultNodeList() {
-		clear();
 	}	
-	void clear();
 	//TODO:Use object pool to manage ResultNode and PartitionRowBatch
-	ResultNode* new_node(){
-		return new ResultNode();
+	ResultNode* new_node(const UniqueId& sql_key) {
+		return new ResultNode(sql_key);
 	}	
-	void delete_node(ResultNode** node){
+
+	void delete_node(ResultNode** node) {
 		SAFE_DELETE(*node);
-	}
+	}       
+    
 	ResultNode* pop();
 	void move_tail(ResultNode* node);
 	//Just remove node from link, do not delete node
 	void remove(ResultNode* node);
 	void push(ResultNode* node);
-	ResultNode* get_head(){
-		return _head;	
+	void clear();
+
+	ResultNode* get_head() const{
+		return _head;
 	}
-	ResultNode* get_tail(){
+
+	ResultNode* get_tail() const {
 		return _tail;
 	}
+
+    size_t get_node_count() const {
+        return _node_count;
+    }
 private:
 	//No node, _head = _tail = NULL
 	//One node, _head = _tail
 	ResultNode* _head;
 	ResultNode* _tail;
-	size_t _node_size;
-	size_t _memory_size;
+	size_t _node_count;
+	size_t _data_size;
 };
 
-#endif //DORIS_BE_SRC_OLAP_CACHE_ROW_H
+}
+
+#endif //DORIS_BE_SRC_RUNTIME_CACHE_ROW_H

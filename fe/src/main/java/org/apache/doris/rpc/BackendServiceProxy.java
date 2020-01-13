@@ -27,6 +27,10 @@ import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.PUpdateCacheResult;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
@@ -172,7 +176,7 @@ public class BackendServiceProxy {
             TNetworkAddress address, PFetchCacheRequest request) throws RpcException {
         try {
             PBackendService service = getProxy(address);
-            return service.fetch_cache(request);
+            return service.fetchCache(request);
         } catch (Throwable e) {
             LOG.warn("fetch cache catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -184,7 +188,7 @@ public class BackendServiceProxy {
             TNetworkAddress address, PUpdateCacheRequest request) throws RpcException {
         try {
             PBackendService service = getProxy(address);
-            return service.clear_cache(request);
+            return service.clearCache(request);
         } catch (Throwable e) {
             LOG.warn("clear cache catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);

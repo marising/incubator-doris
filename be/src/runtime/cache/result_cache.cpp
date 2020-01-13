@@ -15,69 +15,83 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
 
 namespace doris {
 
-void ResultCache::update(const PUpdateCacheValue* request, PUpdateCacheResult* response) {    
+void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult* response) { 
+    LOG(WARNING) << "begin update cache.";
     ResultNode* node;
     PCacheStatus status;
     size_t update_size = 0;
     bool update_first = false;
-    std::unique_lock<std::shared_mutex> write_lock(_cache_mtx);
-    auto it = _cache_map.find(request->get_sql_key());
-    if (it != _cache_map.end()) {
-        node = iter->second;
-        status = node->update_batches(request, update_size, update_first);
-        if (update_first){
-            _node_list->move_tail(node);
-        }
+    boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
+    UniqueId sql_key = request->sql_key();
+    LOG(WARNING) << "sql key:" << sql_key;
+    auto it = _node_map.find(sql_key);
+    if (it != _node_map.end()) {
+        node = it->second;
+        status = node->update_partition(request, update_size, update_first);
+        LOG(WARNING) << "update status 1:" << status;
     } else {
-        node = _node_list->new_node();
-        status = node->update_batches(request, update_size, update_first);
-        _node_list->push(node);
-        _cache_map[request->get_sql_key()] = node;                
+        node = _node_list.new_node(sql_key);
+        status = node->update_partition(request, update_size, update_first);
+        LOG(WARNING) << "update status 2:" << status;
+        _node_list.push(node);
+        _node_map[sql_key] = node;                
+    }
+    if (update_first){
+        _node_list.move_tail(node);
     }
     _cache_size += update_size;
-    response.set_status(status);
-    this.prune();
+    response->set_status(status);
+    prune();
+    LOG(WARNING) << "finish update cache.";
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
-    std::shared_lock<std::shared_mutex> read_lock(_cache_mtx);
-    CacheMapType::iterator it = _cache_map.find(request.get_sql_key());
-    if (it == _cache_map.end()) {
+    LOG(WARNING) << "begin fetch cache.";
+    boost::shared_lock<boost::shared_mutex> read_lock(_cache_mtx);
+    UniqueId sql_key = request->sql_key();
+    auto it = _node_map.find(sql_key);
+    if (it == _node_map.end()) {
+        LOG(INFO) << "no such sql key:" << sql_key;
         result->set_status(PCacheStatus::NO_SQL_KEY);
         return;
     }
-    ResultNode* node = it->second->value;
+    ResultNode* node = it->second;
     PartitionRowBatchList part_rowbatch_list;
     bool hit_first = false;
-    PCacheStatus status = node->get_batches(request, part_rowbatch_list, hit_first);
+    PCacheStatus status = node->get_partition(request, part_rowbatch_list, hit_first);
     if (hit_first) {
         _node_list.move_tail(it->second);
     }
     result->set_status(status);
-    for(PartitionRowBatchList::iterator it = part_rowbatch_list.begin(); it != part_rowbatch_list.end(); it++) {
-        PFetchCacheValue* row = result->add_value();
-        row->set_partition_id(it->get_partition_id());
-        row->set_row_batch(it->get_row_batch());
+    for(auto it = part_rowbatch_list.begin(); it != part_rowbatch_list.end(); it++) {
+        PFetchCacheValue* value = result->add_value();
+        value->set_partition_key((*it)->get_partition_key());
+        //value->set_allocated_row_batch((*it)->get_row_batch());
+        PRowBatch* row = value->mutable_row_batch();
+        row->CopyFrom(*((*it)->get_row_batch()));
+        
     }
+    LOG(WARNING) << "finish fetch cache, status:" << status;
 }
 
-bool ResultCache::contains(const PUniqueId& sql_key) {
-    std::shared_lock<std::shared_mutex> read_lock(_cache_mtx);
-    return _node_map.find(key) != _node_map.end();
+bool ResultCache::contains(const UniqueId& sql_key) {
+    boost::shared_lock<boost::shared_mutex> read_lock(_cache_mtx);
+    return _node_map.find(sql_key) != _node_map.end();
 }
 
-ResultNode* find_min_time_node(ResultNode* result_node*){
+ResultNode* find_min_time_node(ResultNode* result_node){
     if (result_node->get_prev()) {
-        if (result_node->get_prev()->get_first_batch_last_time() <= result_node->get_first_batch_last_time()) {
+        if (result_node->get_prev()->first_partition_last_time() <= result_node->first_partition_last_time()) {
             return result_node->get_prev();
         }        
     }
     if (result_node->get_next()) {
-        if(result_node->get_next()->get_first_batch_last_time() < result_node->get_first_batch_last_time()){
+        if(result_node->get_next()->first_partition_last_time() < result_node->first_partition_last_time()){
             return result_node->get_next();
         }
     }
@@ -99,23 +113,23 @@ ResultNode* find_min_time_node(ResultNode* result_node*){
 */
 void ResultCache::prune() {
     if (_cache_size > (_max_size + _elasticity_size)) {
-        ResultNode* result_node = _node_list->get_head();
+        ResultNode* result_node = _node_list.get_head();
         while (_cache_size > _max_size) {
             if (result_node == NULL) {
                 break;
             }
             result_node = find_min_time_node(result_node);            
             _cache_size -= result_node->prune_first();
-            if (result_node->get_batch_size() == 0) {              
+            if (result_node->get_data_size() == 0) {              
                 ResultNode* next_node;
                 if (result_node->get_next()) {
                     next_node = result_node->get_next();
                 } else if(result_node->get_prev()) {
                     next_node = result_node->get_prev();
                 }else{
-                    next_node = _node_list->get_head();
+                    next_node = _node_list.get_head();
                 }
-                this.remove(result_node);
+                remove(result_node);
                 result_node = next_node;
             }
         }
@@ -127,15 +141,17 @@ void ResultCache::remove(ResultNode* result_node){
     if (node_it != _node_map.end()) {
         _node_map.erase(node_it);
         _node_list.remove(result_node);
-        _cache_size -= result_node->get_batch_byte_size();
-        _node_list.delete_node(result_node);
+        _cache_size -= result_node->get_data_size();
+        _node_list.delete_node(&result_node);
     }
 }
 
 void ResultCache::clear(){
-    std::unique_lock<std::shared_mutex> clear_lock(_cache_mtx);
-    _node_list->clear();
+    LOG(WARNING) << "ResultCache::clear(),node size:" << _node_list.get_node_count();
+    _node_list.clear();
+    LOG(WARNING) << "ResultCache::clear(),node size:" << _node_list.get_node_count();
     _node_map.clear();
+    LOG(WARNING) << "ResultCache::clear(),map size:" << _node_map.size();
     _cache_size = 0;
 }
 

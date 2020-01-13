@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_DATA_CACHE_H
-#define DORIS_BE_SRC_OLAP_DATA_CACHE_H
+#ifndef DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
+#define DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
 
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +25,9 @@
 #include <list>
 #include <iostream>
 #include <mutex>
+#include <shared_mutex>
+#include <thread>
+#include <boost/thread.hpp>
 #include <exception>
 #include "common/config.h"
 #include "runtime/mem_tracker.h"
@@ -36,17 +39,31 @@
 
 namespace doris {
 
+/*
+Struct SqlKey{
+    int64 hi;
+    int64 lo;
+    bool operator== (const SqlKey& k) const{
+        return hi == k.hi && lo == p.lo; 
+    }
+}
+
+bool PUniqueId::operator == (const PUniqueId id) const {
+    return hi() == id.hi() && lo() == id.lo();
+}
+*/
+
 class ResultCache {
 public:	
 	ResultCache(int32 max_size, int32 elasticity_size) {
 		_max_size = max_size * 1024 * 1024;
 		_elasticity_size = elasticity_size * 1024 * 1024;
 	}
-	virtual ~DataCache() {
+	virtual ~ResultCache() {
 	}
-	void update(const PUpdateCacheValue* request, PUpdateCacheResult* response);
+	void update(const PUpdateCacheRequest* request, PUpdateCacheResult* response);
 	void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
-	bool contains(const PUniqueId& sql_key);
+	bool contains(const UniqueId& sql_key);
 	void clear();
 	size_t get_cache_size(){
 		return _cache_size;
@@ -57,18 +74,19 @@ private:
 
 	//At the same time, multithreaded reading
 	//Single thread updating and cleaning(only single be, Fe is not affected)
-	mutable std::shared_mutex _cache_mtx;
+	mutable boost::shared_mutex _cache_mtx;
 	ResultNodeMap _node_map;
 	ResultNodeList _node_list;	
 	size_t _cache_size;
 	size_t _max_size;
 	double _elasticity_size;
+
 private:
-	DataCache();
-	DataCache(const Cache&);
-	const Cache& operator =(const Cache&);
+	ResultCache();
+	ResultCache(const ResultCache&);
+	const ResultCache& operator =(const ResultCache&);
 };
 
 }
 
-#endif //DORIS_BE_SRC_OLAP_DATA_CACHE_H
+#endif //DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H

@@ -24,6 +24,10 @@ import org.apache.doris.proto.PFetchDataResult;
 import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
+import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.PUpdateCacheResult;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
 
 import com.baidu.jprotobuf.pbrpc.ProtobufRPC;
 

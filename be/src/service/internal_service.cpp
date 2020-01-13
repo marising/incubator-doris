@@ -19,6 +19,7 @@
 
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
@@ -222,7 +223,7 @@ void PInternalServiceImpl<T>::get_info(
 }
 
 template<typename T>
-void update_cache(google::protobuf::RpcController* controller,
+void PInternalServiceImpl<T>::update_cache(google::protobuf::RpcController* controller,
         const PUpdateCacheRequest* request,
         PUpdateCacheResult* response,
         google::protobuf::Closure* done) {
@@ -230,15 +231,15 @@ void update_cache(google::protobuf::RpcController* controller,
 }
 
 template<typename T>
-void fetch_cache(google::protobuf::RpcController* controller,
+void PInternalServiceImpl<T>::fetch_cache(google::protobuf::RpcController* controller,
         const PFetchCacheRequest* request,
-        PUpdateCacheRequest* result,
+        PFetchCacheResult* result,
         google::protobuf::Closure* done) {
     _exec_env->result_cache()->fetch(request, result);
 }
 
 template<typename T>
-void clear_cache(google::protobuf::RpcController* controller,
+void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* controller,
         const PUpdateCacheRequest* request,
         PUpdateCacheResult* response,
         google::protobuf::Closure* done) {

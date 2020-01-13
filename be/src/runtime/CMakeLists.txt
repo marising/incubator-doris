@@ -106,6 +106,8 @@ set(RUNTIME_FILES
     external_scan_context_mgr.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    cache/result_node.cpp
+    cache/result_cache.cpp
 )
 
 if (WITH_MYSQL)

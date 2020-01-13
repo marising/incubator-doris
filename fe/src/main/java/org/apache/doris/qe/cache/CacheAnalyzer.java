@@ -17,24 +17,39 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.*;
-import org.apache.doris.catalog.*;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 
-import java.math.BigInteger;
-import java.security.MessageDigest;
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.logging.LogManager;
-import java.util.logging.Logger;
 
 public class CacheAnalyzer {
     private static final Logger LOG = LogManager.getLogger(CacheAnalyzer.class);
@@ -52,8 +67,11 @@ public class CacheAnalyzer {
     private CacheModel cacheModel;
     private CacheProxy.FetchCacheResult cacheResult;
     private StatementBase parsedStmt;
+    //normal sql
     private SelectStmt selectStmt;
+    //no partition key's sql
     private SelectStmt nokeySelectStmt;
+    //rewrite sql
     private SelectStmt rewriteSelectStmt;
     private List<ScanNode> scanNodes;
     private OlapScanNode olapNode;
@@ -91,9 +109,11 @@ public class CacheAnalyzer {
         CachePartition cachePart = CachePartition.getInstance();
         CacheProxy proxy = new CacheProxy();
         CacheProxy.FetchCacheRequest request;
+        Status status = new Status();
         if (getCacheModel() == CacheModel.Table) {
-             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
-            cacheResult = proxy.fetchCache(request, 1000);
+            request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
+            cacheResult = proxy.fetchCache(request, 1000, status);
+            LOG.info("fetch table cache, msg={}", status.getErrorMsg());  
         } else if (getCacheModel() == CacheModel.Partition) {
             nokeySelectStmt = (SelectStmt) selectStmt.clone();
             request = new CacheProxy.FetchCacheRequest(nokeySelectStmt.toSql());
@@ -108,13 +128,14 @@ public class CacheAnalyzer {
                 request.addParam(single.getPartitionKey(), single.getPartition().getVisibleVersion(),
                         single.getPartition().getVisibleVersionTime());
             }
-            cacheResult = proxy.fetchCache(request, 10000);
+            cacheResult = proxy.fetchCache(request, 10000, status);
+            LOG.info("fetch partition cache, msg={}", status.getErrorMsg());
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()){
                 range.setCacheFlag(value.getPartitionKey());
             }
             CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
             rewriteSelectStmt = (SelectStmt) selectStmt.clone();
-            rewriteScanRangeWhereClause(getRewriteSelectStmt(), partitionKeyPredicate, newPredicate);
+            rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
         }
         isHitCache = true;
         return cacheResult;
@@ -136,7 +157,9 @@ public class CacheAnalyzer {
             long partKey = value.getPartitionKey();
         }
         CacheProxy proxy = new CacheProxy();
-        proxy.updateCache(updateRequest);
+        Status status = new Status();
+        proxy.updateCache(updateRequest,status);
+        LOG.info("update cache, sqlKey={}, status={}", updateRequest.getSqlKey(), status.getErrorMsg());
     }
 
     /**
@@ -210,7 +233,7 @@ public class CacheAnalyzer {
         return CacheModel.Partition;
     }
 
-    private void rewriteScanRangeWhereClause(Expr expr, CompoundPredicate predicate, CompoundPredicate newPredicate){
+    private void rewriteScanRangeWhereClause(SelectStmt selectStmt, CompoundPredicate predicate, CompoundPredicate newPredicate){
 
     }
 
@@ -283,10 +306,7 @@ public class CacheAnalyzer {
                 }
             }
             for (Expr subExpr : expr.getChildren()) {
-                cp = getPartitionKeyFromWhereClause(subExpr, partColumn);
-                if (cp != null) {
-                    compoundPredicates.add(cp);
-                }
+                getPartitionKeyFromWhereClause(subExpr, partColumn, compoundPredicates);
             }
         }
     }
@@ -350,24 +370,5 @@ public class CacheAnalyzer {
             }
         }
         return maxTime;
-    }
-
-    public String getQueryKey() {
-        QueryStmt queryStmt = plannerContext.getQueryStmt();
-        String sql = queryStmt.toSql();
-        return getMd5(sql);
-    }
-
-    private static String getMd5(String sql) {
-        String hexStr = "";
-        try {
-            MessageDigest md5 = MessageDigest.getInstance("MD5");
-            byte[] digest = md5.digest(sql.getBytes("utf-8"));
-            BigInteger bigInt = new BigInteger(1,digest);
-            hexStr = bigInt.toString(16);
-        } catch (Exception e) {
-            LOG.warning("getMd5 exception : " + e.getMessage());
-        }
-        return hexStr;
     }
 }

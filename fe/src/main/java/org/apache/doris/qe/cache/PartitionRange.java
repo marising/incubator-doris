@@ -17,30 +17,32 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.*;
-import org.apache.doris.catalog.*;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
-import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.planner.PartitionColumnFilter;
-import org.apache.doris.planner.Planner;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.RowBatch;
-import org.apache.doris.qe.StmtExecutor;
 
-import java.math.BigInteger;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.Collections;
+import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
-import java.util.logging.LogManager;
-import java.util.logging.Logger;
 
 public class PartitionRange {
-    private static final Logger LOG = LogManager.getLogger(org.apache.doris.qe.cache.PartitionRange.class);
+    private static final Logger LOG = LogManager.getLogger(PartitionRange.class);
 
     public class PartitionSingle{
         private Partition partition;
@@ -136,8 +138,13 @@ public class PartitionRange {
         }
         partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
         PartitionColumnFilter filter = createPartitionFilter(this.partitionKeyPredicate, partitionColumn);
-        List<PartitionSingle> singleList = getPartitionKeyRange(filter, partitionColumn);
-        getTablePartitionList(olapTable, singleList);
+        try{
+            List<PartitionSingle> singleList = getPartitionKeyRange(filter, partitionColumn);
+            getTablePartitionList(olapTable, singleList);
+        } catch (AnalysisException e) {
+            LOG.warn("get partition range failed, because:", e);
+            return false;
+        }
         return true;
     }
 
@@ -147,10 +154,11 @@ public class PartitionRange {
                 single.setFromCache(true);
             }
         }
+        return true;
     }
 
     public CompoundPredicate rewritePartitionPricate(){
-
+        return null;
     }
 
     /**
@@ -185,7 +193,7 @@ public class PartitionRange {
      * Get value range of partition column from predicate
      */
     private List<PartitionSingle> getPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
-                                                       Column partitionColumn) {
+        Column partitionColumn) throws AnalysisException {
         List<PartitionSingle> partitionSingleList = Lists.newArrayList();
         if (partitionColumnFilter.lowerBound == null || partitionColumnFilter.upperBound == null) {
             return partitionSingleList;
@@ -199,9 +207,10 @@ public class PartitionRange {
         if (!partitionColumnFilter.upperBoundInclusive) {
             end -= 1;
         }
-        for(int val=begin; val <= end; val++) {
+        for(long val=begin; val <= end; val++) {
             PartitionKey key = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue(String.valueOf(val)),Lists.newArrayList(partitionColumn)));
+                Lists.newArrayList(new PartitionValue(String.valueOf(val))),
+                Lists.newArrayList(partitionColumn));
             PartitionSingle single = new PartitionSingle();
             single.setPartitionKey(val);
             single.setKey(key);
@@ -219,16 +228,24 @@ public class PartitionRange {
         for (Expr expr : partitionKeyPredicate.getChildren()) {
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate binPredicate = (BinaryPredicate) expr;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
+                BinaryPredicate.Operator op = binPredicate.getOp();
+
+                Expr slotBinding;
+                if (binPredicate.slotIsLeft()) {
+                    slotBinding = binPredicate.getChild(0);
+                }else{
+                    slotBinding = binPredicate.getChild(1);
+                }
+                
+                if (!binPredicate.slotIsLeft()) {
+                    op = op.commutative();
+                }
+                //Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
                 if (binPredicate.getOp() == BinaryPredicate.Operator.NE
                         || !(slotBinding instanceof LiteralExpr)) {
                     continue;
                 }
                 LiteralExpr literal = (LiteralExpr) slotBinding;
-                BinaryPredicate.Operator op = binPredicate.getOp();
-                if (!binPredicate.slotIsLeft()) {
-                    op = op.commutative();
-                }
                 switch (op) {
                     case EQ:
                         partitionColumnFilter.setLowerBound(literal, true);

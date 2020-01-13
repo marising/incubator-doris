@@ -554,9 +554,13 @@ public class StmtExecutor {
         CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
         if ( cacheAnalyzer.getIsHitCache()) {
             for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
-                channel.sendOnePacket(value.getRowBatch().getRows());
+                batch = value.getRowBatch();
+                for (ByteBuffer row : batch.getBatch().getRows()) {
+                    channel.sendOnePacket(row);
+                    //channel.sendOnePacket(value.getRowBatch().getRows());
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
             }
-            context.updateReturnRows(value.getRowBatch().getRows().size());
             //get rewrite select statment
             SelectStmt newSelectStmt = cacheAnalyzer.getRewriteSelectStmt();
             // create plan again
