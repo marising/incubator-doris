@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.proto.PUniqueId;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Hashtable;
 import java.util.SortedMap;
 import java.util.LinkedList;
 import java.util.TreeMap;
@@ -36,11 +38,9 @@ import java.util.TreeMap;
 
 public class CachePartition {
     private static final Logger LOG = LogManager.getLogger(CachePartition.class);
-
     private static final int VIRTUAL_NODES = 10;
-    private List<Long> realNodes = new LinkedList<Long>();
-    private SortedMap<Long, Backend> virtualNodes = new TreeMap<Long, Backend>();
-
+    private Hashtable<Long, Backend> realNodes = new Hashtable<>();
+    private SortedMap<Long, Backend> virtualNodes = new TreeMap<>();
     private static CachePartition cachePartition;
 
     public static CachePartition getInstance() {
@@ -59,6 +59,7 @@ public class CachePartition {
      * @return Backend
      */
     public Backend findBackend(PUniqueId sqlKey) {
+        checkBackend();
         SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.hi);
         SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.hi);
         int retryCount = 0;
@@ -80,21 +81,27 @@ public class CachePartition {
         }
     }
 
-    public void addBackends(ImmutableMap<Long, Backend> backends) {
-        for (Map.Entry<Long, Backend> entry : backends.entrySet()) {
-            Long backendID = entry.getKey();
-            Backend backend = entry.getValue();
-            addBackend(backendID, backend);
+    public void checkBackend() {
+        ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+        for (Backend backend : idToBackend.values().asList()) {
+            addBackend(backend);
         }
     }
 
-    public void addBackend(Long backendID, Backend backend) {
-        realNodes.add(backendID);
+    public void addBackend(Backend backend) {
+        if(realNodes.contains(backend.getId())) {
+            return;
+        }
+        realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
-            String virtualNodeName = backendID.toString() + "::" + String.valueOf(i);
+            String virtualNodeName = backend.getId().toString() + "::" + String.valueOf(i);
             Long hashCode = new Long((long)virtualNodeName.hashCode());
             virtualNodes.put(hashCode, backend);
         }
+    }
+
+    public boolean exitsBackend(Long id) {
+        return realNodes.contains(id);
     }
 
     public List<Backend> getAllRealNode(){
@@ -105,5 +112,4 @@ public class CachePartition {
         }
         return beList;
     }
-
 }

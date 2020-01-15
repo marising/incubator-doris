@@ -101,6 +101,11 @@ public class CacheAnalyzer {
         cacheResult = null;
     }
 
+    public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes){
+        this.parsedStmt = parsedStmt;
+        this.scanNodes.addAll(scanNodes);
+    }
+
     public CacheProxy.FetchCacheResult getCache() {
         if(checkCacheModel() == CacheModel.None){
             return cacheResult;

@@ -183,6 +183,13 @@ public class Partition extends MetaObject implements Writable {
         this.visibleVersionHash = visibleVersionHash;
     }
 
+    //Just for unit test
+    public void SetVisibleVersion(long visibleVersion, long visibleVersionHash, long visibleVersionTime){
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.visibleVersionHash = visibleVersionHash;
+    }
+
     public PartitionState getState() {
         return this.state;
     }
