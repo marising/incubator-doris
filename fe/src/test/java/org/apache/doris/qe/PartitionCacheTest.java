@@ -55,6 +55,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.system.Backend;
@@ -125,7 +126,11 @@ public class PartitionCacheTest {
     @Before
     public void setUp() throws IOException {
         testDB = new CacheTestDB();
-        testDB.init();
+        try{
+            testDB.init();
+        } catch (Exception e){
+            LOG.warn("Init error={}",e);
+        }
     }
     
     @Test
@@ -156,151 +161,76 @@ public class PartitionCacheTest {
 
     @Test
     public void testCacheModelSimple() throws Exception {
-        //2020-01-15 11:50:31
-        //EasyMock.expect(System.currentTimeMillis()).andReturn(1579060231000).anyTimes();
-        String stmt = new String("SELECT country, COUNT(userid) FROM testDb.userprofile GROUP BY country");
+        String stmt = new String("SELECT country, COUNT(userid) FROM userprofile GROUP BY country");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
             parseStmt = (StatementBase) parser.parse().value;
         } catch (Exception e) {
-            LOG.warn("SQL={},msg={}", stmt, e.getMessage());
+            LOG.warn("Simple SQL={},msg={}", stmt, e.getMessage());
             Assert.fail(e.getMessage());
         }
-        List<ScanNode> scanNodes = Lists.newArrayList();
-        createUserProfileScanNodes(scanNodes);
-        if(parseStmt == null){
-            LOG.warn("parse stmt failed.");
-        }
-        LOG.warn("scan node size {}.", scanNodes.size());
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
         
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(0);
-        LOG.warn("SQL={}",stmt);
-        LOG.warn("CheckModel={}",cm);
+        LOG.warn("Simple SQL={}",stmt);
+        LOG.warn("Simple CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.Table);
     }
     
     @Test
     public void testWithinMinTime() throws Exception {
-        String stmt = new String("SELECT country, COUNT(userid) FROM testDb.testTbl GROUP BY country");
+        String stmt = new String("SELECT country, COUNT(userid) FROM userprofile GROUP BY country");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
             parseStmt = (StatementBase) parser.parse().value;
         } catch (Exception e) {
-            LOG.warn("SQL={},msg={}", stmt, e.getMessage());
+            LOG.warn("MinTime SQL={},msg={}", stmt, e.getMessage());
             Assert.fail(e.getMessage());
         }
-        List<ScanNode> scanNodes = Lists.newArrayList();
-        createUserProfileScanNodes(scanNodes);
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
+
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(1579024800000L); //2020-1-15 10:01:01
-        LOG.warn("SQL={}",stmt);
-        LOG.warn("CheckModel={}",cm);
+        LOG.warn("MinTime SQL={}",stmt);
+        LOG.warn("MinTime CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.None);
     }
     
     @Test
     public void testPartitionCache() throws Exception {
-        String stmt = new String("SELECT date, COUNT(userid) FROM testTbl GROUP BY date");
+        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202014 and date<=202015 GROUP BY date");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
             parseStmt = (StatementBase) parser.parse().value;
         } catch (Exception e) {
-            LOG.warn("SQL={},ps_ex={}", stmt, e);
+            LOG.warn("Part SQL={},ps_ex={}", stmt, e);
             Assert.fail(e.getMessage());
         }
 
-        if (parseStmt==null) {
-            LOG.warn("smtm is null");
-        }
-
-        try {            
-            parseStmt.analyze(testDB.analyzer);
+        try {
+            parseStmt.analyze(testDB.createAnalyzer());
         } catch (AnalysisException e) {
-            LOG.warn("SQL={},an_ex={}", stmt, e);
+            LOG.warn("Part,an_ex={}", e);
             //Assert.fail(e.getMessage());
         } catch (UserException e) {            
-            LOG.warn("SQL={},ue_ex={}", stmt, e);
+            LOG.warn("Part,ue_ex={}", e);
             //Assert.fail(e.getMessage());
         } catch (Exception e) {
-            LOG.warn("SQL={},cm_ex={}", stmt, e);
+            LOG.warn("Part,cm_ex={}", e);
             //Assert.fail(e.getMessage());
         }
 
-        List<ScanNode> scanNodes = Lists.newArrayList();
-        createMusicEventScanNodes(scanNodes);
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
+
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        LOG.warn("SQL={}",stmt);
-        LOG.warn("CheckModel={}",cm);
+        LOG.warn("Part SQL={}",stmt);
+        LOG.warn("Part CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.Partition);
     }
-
-    /*
-    @Test
-    public void testSelect() throws Exception {
-        QueryStmt queryStmt = EasyMock.createMock(QueryStmt.class);
-        queryStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(queryStmt.getColLabels()).andReturn(Lists.<String>newArrayList()).anyTimes();
-        EasyMock.expect(queryStmt.getResultExprs()).andReturn(Lists.<Expr>newArrayList()).anyTimes();
-        EasyMock.expect(queryStmt.isExplain()).andReturn(false).anyTimes();
-        queryStmt.getDbs(EasyMock.isA(Analyzer.class), EasyMock.isA(SortedMap.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(queryStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        queryStmt.rewriteExprs(EasyMock.isA(ExprRewriter.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(queryStmt);
-
-        Symbol symbol = new Symbol(0, queryStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // mock planner
-        Planner planner = EasyMock.createMock(Planner.class);
-        planner.plan(EasyMock.isA(QueryStmt.class), EasyMock.isA(Analyzer.class), EasyMock.isA(TQueryOptions.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(planner);
-
-        PowerMock.expectNew(Planner.class).andReturn(planner).anyTimes();
-        PowerMock.replay(Planner.class);
-
-        // mock coordinator
-        Coordinator cood = EasyMock.createMock(Coordinator.class);
-        cood.exec();
-        EasyMock.expectLastCall().anyTimes();
-        cood.endProfile();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(cood.getQueryProfile()).andReturn(new RuntimeProfile()).anyTimes();
-        EasyMock.expect(cood.getNext()).andReturn(new RowBatch()).anyTimes();
-        EasyMock.expect(cood.getJobId()).andReturn(-1L).anyTimes();
-        EasyMock.replay(cood);
-        PowerMock.expectNew(Coordinator.class, EasyMock.isA(ConnectContext.class),
-                EasyMock.isA(Analyzer.class), EasyMock.isA(Planner.class))
-                .andReturn(cood).anyTimes();
-        PowerMock.replay(Coordinator.class);
-
-        Catalog catalog = Catalog.getInstance();
-        Field field = catalog.getClass().getDeclaredField("canRead");
-        field.setAccessible(true);
-        field.set(catalog, new AtomicBoolean(true));
-
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
-    }
-     */
-
 }
 
