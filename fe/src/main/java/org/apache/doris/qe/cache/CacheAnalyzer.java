@@ -79,6 +79,7 @@ public class CacheAnalyzer {
     private RangePartitionInfo partitionInfo;
     private Column partColumn;
     private CompoundPredicate partitionKeyPredicate;
+    private PartitionRange range;
     private PartitionRange partitionRange;
     private List<RowBatch> rowBatchList;
     private boolean isHitCache;
@@ -124,7 +125,7 @@ public class CacheAnalyzer {
             //request.addParam();
             rewriteNoKeySelectStmt(nokeySelectStmt, partitionKeyPredicate);
             //List<Long> keyRangeList = getPartitionRange(this.partitionKeyPredicate);
-            PartitionRange range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
+            range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
             if( !range.analytics() ){
                 return cacheResult;
             }
@@ -137,6 +138,7 @@ public class CacheAnalyzer {
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()){
                 range.setCacheFlag(value.getPartitionKey());
             }
+            range.analytics();
             CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
             rewriteSelectStmt = (SelectStmt) selectStmt.clone();
             rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
@@ -248,7 +250,7 @@ public class CacheAnalyzer {
     }
 
     private void rewriteScanRangeWhereClause(SelectStmt selectStmt, CompoundPredicate predicate, CompoundPredicate newPredicate){
-
+        
     }
 
     /*
@@ -391,5 +393,17 @@ public class CacheAnalyzer {
             }
         }
         return maxTime;
+    }
+
+    //for unit test only
+    public SelectStmt testNokeySelectStmt(){
+        SelectStmt tmpStmt = (SelectStmt) selectStmt.clone();
+        rewriteNoKeySelectStmt(tmpStmt, partitionKeyPredicate);
+        return tmpStmt;
+    }
+
+    //for unit test only
+    public PartitionRange testPartitionRange(){
+        PartitionRange tmpRange = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
     }
 }

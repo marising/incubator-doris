@@ -147,15 +147,19 @@ public class CacheTestDB {
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
-        Partition part1 = new Partition(2020114, "p20200114", baseIndex, distInfo);
+
+        Partition part13 = new Partition(2020113, "p20200113", baseIndex, distInfo);
+        part1.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
+        Partition part14 = new Partition(2020114, "p20200114", baseIndex, distInfo);
         part1.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
-        Partition part2 = new Partition(2020115, "p20200115", baseIndex, distInfo);
+        Partition part15 = new Partition(2020115, "p20200115", baseIndex, distInfo);
         part2.SetVisibleVersion(2,2,1579021200000L);     //2020-01-15 1:00:00
 
         OlapTable table = new OlapTable(20000L, "userprofile", columns,KeysType.DUP_KEYS, partInfo, distInfo);
 
-        table.addPartition(part1);
-        table.addPartition(part2);
+        table.addPartition(part13);
+        table.addPartition(part14);
+        table.addPartition(part15);
 
         table.setIndexSchemaInfo(baseIndex.getId(), "userprofile", columns, 0, 1, (short) 1);
         table.setBaseIndexId(baseIndex.getId());
@@ -188,22 +192,21 @@ public class CacheTestDB {
         MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
-        Partition part1 = new Partition(2020114, "p20200114", baseIndex, distInfo);
+        Partition part13 = new Partition(2020113, "p20200113", baseIndex, distInfo);
+        part1.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
+        Partition part14 = new Partition(2020114, "p20200114", baseIndex, distInfo);
         part1.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
-        Partition part2 = new Partition(2020115, "p20200115", baseIndex, distInfo);
+        Partition part15 = new Partition(2020115, "p20200115", baseIndex, distInfo);
         part2.SetVisibleVersion(2,2,1579053661000L);     //2020-01-15 10:01:01
 
-
         OlapTable table = new OlapTable(30000L, "appevent", columns,KeysType.DUP_KEYS, partInfo, distInfo);
-        table.addPartition(part1);
-        table.addPartition(part2);
+        table.addPartition(part13);
+        table.addPartition(part14);
+        table.addPartition(part15);
 
         table.setIndexSchemaInfo(baseIndex.getId(), "appevent", columns, 0, 1, (short) 1);
         table.setBaseIndexId(baseIndex.getId());
 
-        //EasyMock.expect(table.getRowCount()).andReturn(0L).anyTimes();
-        //EasyMock.replay(table);
-        
         return table;
     }
 

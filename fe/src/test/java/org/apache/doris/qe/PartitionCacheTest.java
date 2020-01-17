@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.qe.CacheTestDB;
+import org.apache.doris.qe.cache.PartitionRange;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheModel;
 import org.apache.doris.analysis.AccessTestUtil;
@@ -198,39 +199,75 @@ public class PartitionCacheTest {
         LOG.warn("MinTime CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.None);
     }
-    
+
     @Test
-    public void testPartitionCache() throws Exception {
-        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202014 and date<=202015 GROUP BY date");
+    public void testPartitionModel() throws Exception {
+        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202013 and date<=202015 GROUP BY date");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
             parseStmt = (StatementBase) parser.parse().value;
-        } catch (Exception e) {
-            LOG.warn("Part SQL={},ps_ex={}", stmt, e);
-            Assert.fail(e.getMessage());
-        }
-
-        try {
             parseStmt.analyze(testDB.createAnalyzer());
         } catch (AnalysisException e) {
             LOG.warn("Part,an_ex={}", e);
             //Assert.fail(e.getMessage());
-        } catch (UserException e) {            
+        } catch (UserException e) {
             LOG.warn("Part,ue_ex={}", e);
             //Assert.fail(e.getMessage());
         } catch (Exception e) {
             LOG.warn("Part,cm_ex={}", e);
             //Assert.fail(e.getMessage());
         }
-
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
-
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
         LOG.warn("Part SQL={}",stmt);
         LOG.warn("Part CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.Partition);
     }
+
+    @Test
+    public void testRewriteSql() throws Exception {
+        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202013 and date<=202015 GROUP BY date");
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
+        StatementBase parseStmt = null;
+        try {
+            parseStmt = (StatementBase) parser.parse().value;
+            parseStmt.analyze(testDB.createAnalyzer());
+        } catch (AnalysisException e) {
+            LOG.warn("Rewrite,an_ex={}", e);
+            Assert.fail(e.getMessage());
+        } catch (UserException e) {            
+            LOG.warn("Rewrite,ue_ex={}", e);
+            Assert.fail(e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("Rewrite,cm_ex={}", e);
+            Assert.fail(e.getMessage());
+        }
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
+        CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
+        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        LOG.warn("Rewrite SQL={}",stmt);
+        LOG.warn("Rewrite CheckModel={}",cm);
+        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+
+        SelectStmt nokeyStmt = ca.testNokeySelectStmt();
+        String sql = nokeyStmt.toSql();
+        LOG.warn("Rewrite rewrite sql={}", sql);
+        //Assert.assertEquals(sql, "");
+
+        PartitionRange range= ca.testPartitionRange();
+        int size = range.getSingleList().size();
+        LOG.warn("Rewrite partition range size={}", size);
+        Assert.assertEquals(rangeSize, 3);
+        range.setCacheFlag(202013L);    //get data from cache
+        range.analytics();
+        CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
+        sql = newPredicate.toSql();
+        LOG.warn("Rewrite new predicate={}", sql);
+        //Assert.assertEquals(sql,"");
+
+    }
+
 }
 

@@ -129,7 +129,6 @@ public class PartitionRange {
 
     /**
      * analytics PartitionKey and PartitionInfo
-     *
      * @return
      */
     public boolean analytics(){
