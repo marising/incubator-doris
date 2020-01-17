@@ -103,23 +103,22 @@ public class CacheAnalyzer {
 
     public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes){
         this.parsedStmt = parsedStmt;
-        this.scanNodes.addAll(scanNodes);
+        this.scanNodes = scanNodes;
     }
 
     public CacheProxy.FetchCacheResult getCache() {
-        if(checkCacheModel() == CacheModel.None){
+        if(checkCacheModel(0) == CacheModel.None){
             return cacheResult;
         }
-        String sqlKey;
         CachePartition cachePart = CachePartition.getInstance();
         CacheProxy proxy = new CacheProxy();
         CacheProxy.FetchCacheRequest request;
         Status status = new Status();
-        if (getCacheModel() == CacheModel.Table) {
+        if (cacheModel == CacheModel.Table) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             cacheResult = proxy.fetchCache(request, 1000, status);
             LOG.info("fetch table cache, msg={}", status.getErrorMsg());  
-        } else if (getCacheModel() == CacheModel.Partition) {
+        } else if (cacheModel == CacheModel.Partition) {
             nokeySelectStmt = (SelectStmt) selectStmt.clone();
             request = new CacheProxy.FetchCacheRequest(nokeySelectStmt.toSql());
             //request.addParam();
@@ -181,7 +180,7 @@ public class CacheAnalyzer {
      *  SELECT xxx FROM app_event INNER JOIN user_Profile ON app_event.user_id = user_profile.user_id xxx
      *  SELECT xxx FROM app_event INNER JOIN user_profile ON xxx INNER JOIN site_channel ON xxx
      */
-    public CacheModel checkCacheModel() {
+    public CacheModel checkCacheModel(long now) {
         //Only select statement
         if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
             return CacheModel.None;
@@ -201,41 +200,51 @@ public class CacheAnalyzer {
             tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
         }
         Collections.sort(tblTimeList, Collections.reverseOrder());
-        long now = System.currentTimeMillis();
-        if ((now - tblTimeList.get(0).first) >= Config.last_version_min_delta_time) {
+        if(now == 0){
+            now = nowtime();//System.currentTimeMillis();
+        }
+        if ((now - tblTimeList.get(0).first) >= Config.last_version_min_delta_time * 60000) {
             return CacheModel.Table;
         }
         //Check if selectStmt matches partition key
         //Only one table can be updated in Config.last_version_min_delta_time range
         for (int i = 1; i < tblTimeList.size(); i++) {
-            if ((now - tblTimeList.get(i).first) < Config.last_version_min_delta_time) {
+            if ((now - tblTimeList.get(i).first) < Config.last_version_min_delta_time * 60000) {
                 return CacheModel.None;
             }
         }
         olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
         olapTable = olapNode.getOlapTable();
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            LOG.info("The partition of OlapTable not RANGE Type.");
             return CacheModel.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
+            LOG.info("Size of columns for partition key {}", columns.size());
             return CacheModel.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(selectStmt, partColumn)) {
+	    LOG.info("Not group by partition key, key={}",partColumn.getName());
             return CacheModel.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
+            LOG.info("the predicate size include partition key has {}.", compoundPredicates.size());
             return CacheModel.None;
         }
         partitionKeyPredicate = compoundPredicates.get(0);
         return CacheModel.Partition;
+    }
+
+    public long nowtime(){
+        return System.currentTimeMillis();        
     }
 
     private void rewriteScanRangeWhereClause(SelectStmt selectStmt, CompoundPredicate predicate, CompoundPredicate newPredicate){
@@ -325,13 +334,16 @@ public class CacheAnalyzer {
     private boolean checkGroupByPartitionKey(SelectStmt selectStmt, Column partColumn) {
         List<AggregateInfo> aggInfoList = Lists.newArrayList();
         getAggInfoList(selectStmt, aggInfoList);
+        LOG.info("agg list {}", aggInfoList.size());
         int groupbyCount = 0;
         for (AggregateInfo aggInfo : aggInfoList) {
             if (aggInfo.isDistinctAgg()) {
+                LOG.info("agg function");
                 return false;
             }
             ArrayList<Expr> groupExprs = aggInfo.getGroupingExprs();
             if (groupExprs == null) {
+                LOG.info("group is null");
                 continue;
             }
             groupbyCount += 1;
@@ -339,8 +351,11 @@ public class CacheAnalyzer {
             for (Expr groupExpr : groupExprs) {
                 SlotRef slot = (SlotRef) groupExpr;
                 if (partColumn.getName().equals(slot.getColumnName())) {
+                    LOG.info("matched");
                     matched = true;
                     break;
+                }else{
+                    LOG.info("matched, part key{}, group by{}", partColumn.getName(), slot.getColumnName());                    
                 }
             }
             if (!matched) {
@@ -350,11 +365,12 @@ public class CacheAnalyzer {
         return groupbyCount > 0 ? true : false;
     }
 
-    private void getAggInfoList(SelectStmt selectStmt, List<AggregateInfo> aggInfoList) {
-        AggregateInfo aggInfo = selectStmt.getAggInfo();
+    private void getAggInfoList(SelectStmt selectStmt, List<AggregateInfo> aggInfoList) {        
+        AggregateInfo aggInfo = selectStmt.getAggInfo();        
         if (aggInfo != null) {
             aggInfoList.add(aggInfo);
         }
+        LOG.info("agg size {}", aggInfoList.size());
         List<TableRef> tableRefs = selectStmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
             if (tblRef instanceof InlineViewRef) {

@@ -17,22 +17,19 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.proto.PUniqueId;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
-import java.util.Map;
 import java.util.Hashtable;
 import java.util.SortedMap;
-import java.util.LinkedList;
 import java.util.TreeMap;
 
 
@@ -62,20 +59,25 @@ public class CachePartition {
         checkBackend();
         SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.hi);
         SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.hi);
-        int retryCount = 0;
+        int retryTimes = 0;
         while (true) {
             if (tailMap == null || tailMap.size() == 0) {
                 tailMap = headMap;
-                retryCount += 1;
+                retryTimes += 1;
+                LOG.info("invalid tail map, retry {}", retryTimes); 
             }
             Long key = tailMap.firstKey();
             Backend virtualNode = tailMap.get(key);
             if (SimpleScheduler.isAlive(virtualNode)) {
+                LOG.info("backend {} alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
                 return virtualNode;
+            } else {
+                LOG.info("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
             }
             tailMap = tailMap.tailMap(key + 1);
-            retryCount += 1;
-            if (retryCount >= 5) {
+            retryTimes++;
+            if (retryTimes >= 5) {
+                LOG.warn("reach max retry times {}", retryTimes); 
                 return null;
             }
         }
@@ -92,24 +94,18 @@ public class CachePartition {
         if(realNodes.contains(backend.getId())) {
             return;
         }
+        //LOG.info("Add backend id {}", backend.getId());
         realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
-            String virtualNodeName = backend.getId().toString() + "::" + String.valueOf(i);
-            Long hashCode = new Long((long)virtualNodeName.hashCode());
-            virtualNodes.put(hashCode, backend);
+            String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
+            //Long hashCode = new Long(nodeName.hashCode());
+            PUniqueId nodeId = CacheProxy.getMd5(nodeName);
+            virtualNodes.put(nodeId.hi, backend);
+            LOG.info("Add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
     }
 
     public boolean exitsBackend(Long id) {
         return realNodes.contains(id);
-    }
-
-    public List<Backend> getAllRealNode(){
-        List<Backend> beList = Lists.newArrayList();
-        for(Long id : realNodes){
-            Backend be = virtualNodes.get(id);
-            beList.add(be);
-        }
-        return beList;
     }
 }
