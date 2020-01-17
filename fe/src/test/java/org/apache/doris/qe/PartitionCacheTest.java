@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.qe.CacheTestDB;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheModel;
 import org.apache.doris.analysis.AccessTestUtil;
@@ -104,17 +105,12 @@ import java_cup.runtime.Symbol;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
-@PrepareForTest({CacheAnalyzer.class, DdlExecutor.class, Catalog.class})
+@PrepareForTest({CacheAnalyzer.class, CacheTestDB.class})
 public class PartitionCacheTest {
     private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
-    private Catalog catalog;
-    private Analyzer analyzer;
-    private ConnectContext ctx;
     private Planner planner;
-    private SystemInfoService systemInfo;
-    private QueryState state;
     private ConnectScheduler scheduler;
-
+    private CacheTestDB testDB;
     @BeforeClass
     public static void start() {
         MetricRepo.init();
@@ -128,76 +124,8 @@ public class PartitionCacheTest {
 
     @Before
     public void setUp() throws IOException {
-        state = new QueryState();
-        MysqlChannel channel = EasyMock.createMock(MysqlChannel.class);
-        channel.sendOnePacket(EasyMock.isA(ByteBuffer.class));
-        EasyMock.expectLastCall().anyTimes();
-        channel.reset();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(channel);
-        scheduler = EasyMock.createMock(ConnectScheduler.class);
-        ctx = EasyMock.createMock(ConnectContext.class);
-        EasyMock.expect(ctx.getMysqlChannel()).andReturn(channel).anyTimes();
-        EasyMock.expect(ctx.getSerializer()).andReturn(MysqlSerializer.newInstance()).anyTimes();
-        EasyMock.expect(ctx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(ctx.getState()).andReturn(state).anyTimes();
-        EasyMock.expect(ctx.getConnectScheduler()).andReturn(scheduler).anyTimes();
-        EasyMock.expect(ctx.getConnectionId()).andReturn(1).anyTimes();
-        EasyMock.expect(ctx.getQualifiedUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(ctx.getForwardedStmtId()).andReturn(123L).anyTimes();
-        ctx.setKilled();
-        EasyMock.expectLastCall().anyTimes();
-        ctx.updateReturnRows(EasyMock.anyInt());
-        EasyMock.expectLastCall().anyTimes();
-        ctx.setQueryId(EasyMock.isA(TUniqueId.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ctx.queryId()).andReturn(new TUniqueId()).anyTimes();
-        EasyMock.expect(ctx.getStartTime()).andReturn(0L).anyTimes();
-        EasyMock.expect(ctx.getDatabase()).andReturn("testDb").anyTimes();
-        SessionVariable sessionVariable = new SessionVariable();
-        EasyMock.expect(ctx.getSessionVariable()).andReturn(sessionVariable).anyTimes();
-        ctx.setStmtId(EasyMock.anyLong());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ctx.getStmtId()).andReturn(1L).anyTimes();
-        EasyMock.replay(ctx);
-
-        catalog = AccessTestUtil.fetchAdminCatalog();
-//        systemInfo = new SystemInfoService();
-        systemInfo = AccessTestUtil.fetchSystemInfoService();
-
-        /*
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfo).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
-        */
-
-        /*
-        TableRef tblRef = new TableRef(new TableName("testDb","testTbl"),"l");
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        try{
-            EasyMock.expect(analyzer.resolveTableRef(tblRef)).andReturn(tblRef).anyTimes();
-        } catch (AnalysisException e) {
-            LOG.warn("an_ex={}", e);
-            Assert.fail(e.getMessage());
-        } catch (UserException e) {            
-            LOG.warn("ue_ex={}", e);
-            Assert.fail(e.getMessage());
-        } catch (Exception e) {
-            LOG.warn("cm_ex={}", e);
-            Assert.fail(e.getMessage());
-        }
-        */
-
-        /*
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(analyzer);
-        */
+        testDB = new CacheTestDB();
+        testDB.init();
     }
     
     @Test
@@ -224,63 +152,6 @@ public class PartitionCacheTest {
         bk = cp.findBackend(key1);
         Assert.assertNotNull(bk);
         Assert.assertEquals(bk.getId(),1);
-    }
-
-    /**
-    * table userprofile(date(pk), userid, country), load data at 1:00 every day
-    * @param scanNodes
-    */
-    void createUserProfileScanNodes(List<ScanNode> scanNodes){
-        List<Column> columns = Lists.newArrayList();
-        Column column1 = new Column("date", ScalarType.INT);
-        Column column2 = new Column("userid", ScalarType.INT);
-        Column column3 = new Column("country", ScalarType.INT);
-        columns.add(column1);
-        columns.add(column2);
-        columns.add(column3);
-        PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
-
-        Partition part1 = new Partition(2020114, "p20200114", null, null);
-        part1.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
-        Partition part2 = new Partition(2020115, "p20200115", null, null);
-        part2.SetVisibleVersion(2,2,1579021200000L);     //2020-01-15 1:00:00
-
-        OlapTable table = new OlapTable(1, "userprofile", columns,KeysType.DUP_KEYS, partInfo, null);      
-        table.addPartition(part1);
-        table.addPartition(part2);
-        TupleDescriptor desc = new TupleDescriptor(new TupleId(1)); 
-        desc.setTable(table);
-        ScanNode node = new OlapScanNode(new PlanNodeId(1), desc, "UserProfileNode");
-        scanNodes.add(node);
-    }
-
-    /**
-     * table MusicEvent(date(pk), userid, eventid, eventtime), stream load every 5 miniutes
-     * @param scanNodes
-     */
-    void createMusicEventScanNodes(List<ScanNode> scanNodes) {
-        List<Column> columns = Lists.newArrayList();
-        Column column1 = new Column("date", ScalarType.INT);
-        Column column2 = new Column("userid", ScalarType.INT);
-        Column column3 = new Column("eventid", ScalarType.INT);
-        Column column4 = new Column("eventtime", ScalarType.DATETIME);
-        columns.add(column1);
-        columns.add(column2);
-        columns.add(column3);
-        PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
-
-        Partition part1 = new Partition(2020114, "p20200114", null, null);
-        part1.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
-        Partition part2 = new Partition(2020115, "p20200115", null, null);
-        part2.SetVisibleVersion(2,2,1579053661000L);     //2020-01-15 10:01:01
-
-        OlapTable table = new OlapTable(1, "testTbl", columns,KeysType.DUP_KEYS, partInfo, null); 
-        table.addPartition(part1);
-        table.addPartition(part2);
-        TupleDescriptor desc = new TupleDescriptor(new TupleId(1)); 
-        desc.setTable(table);
-        ScanNode node = new OlapScanNode(new PlanNodeId(1), desc, "testTblNode");
-        scanNodes.add(node);
     }
 
     @Test
@@ -347,7 +218,7 @@ public class PartitionCacheTest {
         }
 
         try {            
-            parseStmt.analyze(analyzer);
+            parseStmt.analyze(testDB.analyzer);
         } catch (AnalysisException e) {
             LOG.warn("SQL={},an_ex={}", stmt, e);
             //Assert.fail(e.getMessage());
