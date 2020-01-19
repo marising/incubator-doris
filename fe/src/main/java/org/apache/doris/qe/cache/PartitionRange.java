@@ -23,6 +23,8 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Column;
@@ -125,6 +127,7 @@ public class PartitionRange {
         this.partitionKeyPredicate = partitionKeyPredicate;
         this.olapTable = olapTable;
         this.rangePartitionInfo = rangePartitionInfo;
+        this.partitionSingleList = Lists.newArrayList();
     }
 
     /**
@@ -156,9 +159,43 @@ public class PartitionRange {
         return true;
     }
 
-    public CompoundPredicate rewritePartitionPricate(){
-        return null;
+    /**
+     * Support left or right hit cache, not support middle.
+     * 20200113-2020115, not support 20200114
+     */
+    public boolean rewritePartitionPredicate(SelectStmt rewriteStmt){
+        if (partitionSingleList.size() == 0) {
+            return false;
+        }
+        //1 left, 2 right
+        int bound = 0;
+        int index = 0;
+        if (partitionSingleList.get(0).isFromCache()){
+            for (int i = 1; i < partitionSingleList.size(); i++) {
+                if (partitionSingleList.get(i).isFromCache()){
+                    index = i;
+                } else {
+                    break;
+                }
+            }
+        } else if (partitionSingleList.get(partitionSingleList.size()-1).isFromCache()) {
+            bound = 2;
+            for(int i = partitionSingleList.size()-1; i >= 0; i-- ){
+                if (partitionSingleList.get(i).isFromCache()){
+                    index = i;
+                } else {
+                    break;
+                }
+            } 
+        } else{
+            return false;
+        }
+
+         
+
+        return true;     
     }
+    
 
     /**
      * Get partition info from SQL Predicate and OlapTable
@@ -193,8 +230,8 @@ public class PartitionRange {
      */
     private List<PartitionSingle> getPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
         Column partitionColumn) throws AnalysisException {
-        List<PartitionSingle> partitionSingleList = Lists.newArrayList();
         if (partitionColumnFilter.lowerBound == null || partitionColumnFilter.upperBound == null) {
+            LOG.warn("filter is null");
             return partitionSingleList;
         }
         List<Long> partitionKeys = Lists.newArrayList();
@@ -221,6 +258,7 @@ public class PartitionRange {
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,
                                                         Column partitionColumn) {
         if( partitionKeyPredicate.getOp() != CompoundPredicate.Operator.AND ){
+            LOG.warn("not and op");
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();;
@@ -228,23 +266,28 @@ public class PartitionRange {
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate binPredicate = (BinaryPredicate) expr;
                 BinaryPredicate.Operator op = binPredicate.getOp();
-
-                Expr slotBinding;
-                if (binPredicate.slotIsLeft()) {
-                    slotBinding = binPredicate.getChild(0);
-                }else{
-                    slotBinding = binPredicate.getChild(1);
-                }
-                
-                if (!binPredicate.slotIsLeft()) {
-                    op = op.commutative();
-                }
-                //Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
-                if (binPredicate.getOp() == BinaryPredicate.Operator.NE
-                        || !(slotBinding instanceof LiteralExpr)) {
+                if( binPredicate.getChildren().size() != 2){
+                    LOG.warn("child size {}", binPredicate.getChildren().size());
                     continue;
                 }
+                if (binPredicate.getOp() == BinaryPredicate.Operator.NE){
+                    LOG.warn("not support NE operator");
+                    continue;
+                }
+                Expr slotBinding;
+                if (binPredicate.getChild(1) instanceof LiteralExpr) {
+                    slotBinding = binPredicate.getChild(1);
+                } else if (binPredicate.getChild(0) instanceof LiteralExpr) {
+                    slotBinding = binPredicate.getChild(0);
+                } else {
+                    LOG.warn("not find LiteralExpr");
+                    continue;
+                }
+                
                 LiteralExpr literal = (LiteralExpr) slotBinding;
+                if(literal instanceof IntLiteral){
+                    LOG.warn("literal value {}", literal.getRealValue());
+                }
                 switch (op) {
                     case EQ:
                         partitionColumnFilter.setLowerBound(literal, true);
@@ -271,9 +314,6 @@ public class PartitionRange {
                 InPredicate inPredicate = (InPredicate) expr;
                 if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
                     continue;
-                }
-                if (null == partitionColumnFilter) {
-                    partitionColumnFilter = new PartitionColumnFilter();
                 }
                 partitionColumnFilter.setInPredicate(inPredicate);
             }

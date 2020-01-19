@@ -138,10 +138,10 @@ public class CacheAnalyzer {
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()){
                 range.setCacheFlag(value.getPartitionKey());
             }
-            range.analytics();
-            CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
             rewriteSelectStmt = (SelectStmt) selectStmt.clone();
-            rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
+            //CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
+            //rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
+            range.rewritePartitionPredicate(rewriteSelectStmt);
         }
         isHitCache = true;
         return cacheResult;
@@ -242,6 +242,7 @@ public class CacheAnalyzer {
             return CacheModel.None;
         }
         partitionKeyPredicate = compoundPredicates.get(0);
+        LOG.info("predicate sql {}", partitionKeyPredicate.toSql());
         return CacheModel.Partition;
     }
 
@@ -257,7 +258,11 @@ public class CacheAnalyzer {
     * Set the predicate containing partition key to null
      */
     private void rewriteNoKeySelectStmt(SelectStmt selectStmt, CompoundPredicate predicate) {
-        rewriteNoKeyWhereClause(selectStmt.getWhereClause(), predicate);
+        if(selectStmt.getWhereClause().equals(predicate)){
+            selectStmt.setWhereClause(null);
+        }else{
+            rewriteNoKeyWhereClause(selectStmt.getWhereClause(), predicate);
+        }
         List<TableRef> tableRefs = selectStmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
             if (tblRef instanceof InlineViewRef) {
@@ -270,12 +275,14 @@ public class CacheAnalyzer {
         }
     }
 
-    private void rewriteNoKeyWhereClause(Expr expr, CompoundPredicate predicate){
-        if( expr.equals(predicate)){
-            expr.clearChildren();
-        }else{
-            for(Expr subexpr:expr.getChildren()) {
-                rewriteNoKeyWhereClause(subexpr, predicate);
+    private void rewriteNoKeyWhereClause(Expr expr, CompoundPredicate predicate){        
+        for(int i = 0; i < expr.getChildren().size();i++) {            
+            if(expr.getChild(i).equals(predicate)){
+                expr.removeNode(i);
+                i--;
+                break;
+            } else {
+                rewriteNoKeyWhereClause(expr.getChild(i), predicate); 
             }
         }
     }
@@ -404,6 +411,8 @@ public class CacheAnalyzer {
 
     //for unit test only
     public PartitionRange testPartitionRange(){
-        PartitionRange tmpRange = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
+        PartitionRange tmpRange = new PartitionRange(this.partitionKeyPredicate, 
+            this.olapTable, this.partitionInfo);
+        return tmpRange;
     }
 }

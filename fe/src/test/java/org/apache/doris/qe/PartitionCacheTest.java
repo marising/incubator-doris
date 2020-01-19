@@ -40,6 +40,7 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CachePartition;
 import org.apache.doris.qe.cache.CacheProxy;
@@ -202,7 +203,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testPartitionModel() throws Exception {
-        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202013 and date<=202015 GROUP BY date");
+        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=2020113 and date<=2020115 GROUP BY date");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
@@ -228,7 +229,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testRewriteSql() throws Exception {
-        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=202013 and date<=202015 GROUP BY date");
+        String stmt = new String("SELECT date, COUNT(userid) FROM appevent WHERE date>=20200113 and date<=20200115 GROUP BY date");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         StatementBase parseStmt = null;
         try {
@@ -251,22 +252,30 @@ public class PartitionCacheTest {
         LOG.warn("Rewrite CheckModel={}",cm);
         Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
 
-        SelectStmt nokeyStmt = ca.testNokeySelectStmt();
-        String sql = nokeyStmt.toSql();
-        LOG.warn("Rewrite rewrite sql={}", sql);
-        //Assert.assertEquals(sql, "");
+        try{
+            String sql;        
+            SelectStmt nokeyStmt = ca.testNokeySelectStmt();
+            sql = nokeyStmt.toSql();
+            LOG.warn("Rewrite rewrite sql={}", sql);
+            Assert.assertEquals(sql,"SELECT <slot 2> AS `date`, <slot 3> AS `count(``userid``)` FROM `testCluster:testDb`.`appevent` GROUP BY `date`");
 
-        PartitionRange range= ca.testPartitionRange();
-        int size = range.getSingleList().size();
-        LOG.warn("Rewrite partition range size={}", size);
-        Assert.assertEquals(rangeSize, 3);
-        range.setCacheFlag(202013L);    //get data from cache
-        range.analytics();
-        CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
-        sql = newPredicate.toSql();
-        LOG.warn("Rewrite new predicate={}", sql);
-        //Assert.assertEquals(sql,"");
+            PartitionRange range = ca.testPartitionRange();
+            boolean flag = range.analytics();
+            Assert.assertEquals(flag,true);
 
+            int size = range.getSingleList().size();
+            LOG.warn("Rewrite partition range size={}", size);
+            Assert.assertEquals(size, 3);
+
+            range.setCacheFlag(20200113L);    //get data from cache
+
+            CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
+            sql = newPredicate.toSql();
+            LOG.warn("Rewrite new predicate={}", sql);
+        } catch(Exception e){
+            LOG.warn("Rewrite,no_ex={}", e);
+            Assert.fail(e.getMessage());
+        }
     }
 
 }
