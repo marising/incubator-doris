@@ -140,8 +140,9 @@ public class CacheAnalyzer {
             }
             rewriteSelectStmt = (SelectStmt) selectStmt.clone();
             //CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
+            List<PartitionRange.PartitionSingle> newSingleList = range.newPartitionRange();
             //rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
-            range.rewritePartitionPredicate(rewriteSelectStmt);
+            //range.rewritePartitionPredicate(rewriteSelectStmt);
         }
         isHitCache = true;
         return cacheResult;

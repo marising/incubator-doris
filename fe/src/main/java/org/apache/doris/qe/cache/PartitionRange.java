@@ -163,39 +163,41 @@ public class PartitionRange {
      * Support left or right hit cache, not support middle.
      * 20200113-2020115, not support 20200114
      */
-    public boolean rewritePartitionPredicate(SelectStmt rewriteStmt){
+    public List<PartitionSingle> newPartitionRange(){
+        List<PartitionSingle> boundList = Lists.newArrayList();
         if (partitionSingleList.size() == 0) {
-            return false;
+            return boudList;
         }
         //1 left, 2 right
         int bound = 0;
         int index = 0;
         if (partitionSingleList.get(0).isFromCache()){
-            for (int i = 1; i < partitionSingleList.size(); i++) {
+            for (int i = 1; i < partitionSingleList.size()-1; i++) {
                 if (partitionSingleList.get(i).isFromCache()){
                     index = i;
                 } else {
                     break;
                 }
             }
+            boudList.add(partitionSingleList.get(index+1));
+            boudList.add(partitionSingleList.get(partitionSingleList.size()-1));
         } else if (partitionSingleList.get(partitionSingleList.size()-1).isFromCache()) {
             bound = 2;
-            for(int i = partitionSingleList.size()-1; i >= 0; i-- ){
+            for(int i = partitionSingleList.size()-1; i > 0; i-- ){
                 if (partitionSingleList.get(i).isFromCache()){
                     index = i;
                 } else {
                     break;
                 }
             } 
+            boudList.add(partitionSingleList.get(0));
+            boudList.add(partitionSingleList.get(index-1));
         } else{
-            return false;
+            boudList.add(partitionSingleList.get(0));
+            boudList.add(partitionSingleList.get(partitionSingleList.size()-1));
         }
-
-         
-
-        return true;     
+        return boudList;
     }
-    
 
     /**
      * Get partition info from SQL Predicate and OlapTable
