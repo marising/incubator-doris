@@ -21,23 +21,20 @@
 namespace doris {
 
 void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult* response) { 
-    LOG(WARNING) << "begin update cache.";
     ResultNode* node;
     PCacheStatus status;
     size_t update_size = 0;
     bool update_first = false;
     boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
-    LOG(WARNING) << "sql key:" << sql_key;
+    LOG(INFO) << "begin update cache, sql key:" << sql_key;
     auto it = _node_map.find(sql_key);
     if (it != _node_map.end()) {
         node = it->second;
         status = node->update_partition(request, update_size, update_first);
-        LOG(WARNING) << "update status 1:" << status;
     } else {
         node = _node_list.new_node(sql_key);
         status = node->update_partition(request, update_size, update_first);
-        LOG(WARNING) << "update status 2:" << status;
         _node_list.push(node);
         _node_map[sql_key] = node;                
     }
@@ -47,16 +44,13 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
     _cache_size += update_size;
     response->set_status(status);
     prune();
-    LOG(WARNING) << "finish update cache.";
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
-    LOG(WARNING) << "begin fetch cache.";
     boost::shared_lock<boost::shared_mutex> read_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
     auto it = _node_map.find(sql_key);
     if (it == _node_map.end()) {
-        LOG(INFO) << "no such sql key:" << sql_key;
         result->set_status(PCacheStatus::NO_SQL_KEY);
         return;
     }
@@ -71,12 +65,9 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
     for(auto it = part_rowbatch_list.begin(); it != part_rowbatch_list.end(); it++) {
         PFetchCacheValue* value = result->add_value();
         value->set_partition_key((*it)->get_partition_key());
-        //value->set_allocated_row_batch((*it)->get_row_batch());
         PRowBatch* row = value->mutable_row_batch();
         row->CopyFrom(*((*it)->get_row_batch()));
-        
     }
-    LOG(WARNING) << "finish fetch cache, status:" << status;
 }
 
 bool ResultCache::contains(const UniqueId& sql_key) {
@@ -84,12 +75,13 @@ bool ResultCache::contains(const UniqueId& sql_key) {
     return _node_map.find(sql_key) != _node_map.end();
 }
 
-ResultNode* find_min_time_node(ResultNode* result_node){
+ResultNode* find_min_time_node(ResultNode* result_node) {
     if (result_node->get_prev()) {
         if (result_node->get_prev()->first_partition_last_time() <= result_node->first_partition_last_time()) {
             return result_node->get_prev();
-        }        
+        }
     }
+
     if (result_node->get_next()) {
         if(result_node->get_next()->first_partition_last_time() < result_node->first_partition_last_time()){
             return result_node->get_next();
@@ -98,9 +90,11 @@ ResultNode* find_min_time_node(ResultNode* result_node){
     return result_node;
 }
 
+
 /*
 * Two-dimensional array, prune the min last_read_time PartitionRowBatch.
 * The following example is the last read time array.
+* 1 and 2 is the read time, nodes with pruning read time < 3
 * Before:
 *   1,2         //_head ResultNode*
 *   1,2,3,4,5   
@@ -147,11 +141,10 @@ void ResultCache::remove(ResultNode* result_node){
 }
 
 void ResultCache::clear(){
-    LOG(WARNING) << "ResultCache::clear(),node size:" << _node_list.get_node_count();
+    LOG(INFO) << "ResultCache::clear(), node size:" << _node_list.get_node_count()
+        << ", map size:" << _node_map.size();
     _node_list.clear();
-    LOG(WARNING) << "ResultCache::clear(),node size:" << _node_list.get_node_count();
     _node_map.clear();
-    LOG(WARNING) << "ResultCache::clear(),map size:" << _node_map.size();
     _cache_size = 0;
 }
 

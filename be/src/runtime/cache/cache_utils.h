@@ -90,13 +90,13 @@ struct PartitionStat : SqlStat {
 	}
 
 	bool check_match(const int64& last_ver, const long& last_ver_time) {
-		if( last_ver > last_version ) return false;
-		if( last_ver_time > last_version_time ) return false;
+		if (last_ver > last_version) return false;
+		if (last_ver_time > last_version_time) return false;
 		return true;
 	}
         
-    bool check_newer(const int64& last_ver, const long& last_ver_time){
-        return last_ver_time > last_version_time && last_ver > last_version;
+    bool check_newer(const int64& last_ver, const long& last_ver_time) {
+        return (last_ver_time > last_version_time) && (last_ver > last_version);
     }
 
 	void set_update(const int64& last_ver, const long& last_ver_time) {
@@ -105,8 +105,6 @@ struct PartitionStat : SqlStat {
 		last_version_time = last_ver_time;		
 	}
 };
-
-
 
 }
 

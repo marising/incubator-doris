@@ -39,35 +39,25 @@
 
 namespace doris {
 
-/*
-Struct SqlKey{
-    int64 hi;
-    int64 lo;
-    bool operator== (const SqlKey& k) const{
-        return hi == k.hi && lo == p.lo; 
-    }
-}
-
-bool PUniqueId::operator == (const PUniqueId id) const {
-    return hi() == id.hi() && lo() == id.lo();
-}
-*/
-
 class ResultCache {
 public:	
 	ResultCache(int32 max_size, int32 elasticity_size) {
 		_max_size = max_size * 1024 * 1024;
 		_elasticity_size = elasticity_size * 1024 * 1024;
 	}
+
 	virtual ~ResultCache() {
 	}
+
 	void update(const PUpdateCacheRequest* request, PUpdateCacheResult* response);
 	void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
 	bool contains(const UniqueId& sql_key);
 	void clear();
+
 	size_t get_cache_size(){
 		return _cache_size;
 	}
+
 private:
 	void prune();
 	void remove(ResultNode* result_node);
@@ -76,6 +66,7 @@ private:
 	//Single thread updating and cleaning(only single be, Fe is not affected)
 	mutable boost::shared_mutex _cache_mtx;
 	ResultNodeMap _node_map;
+    //List of result nodes corresponding to SqlKey,last recently useed at the tail
 	ResultNodeList _node_list;	
 	size_t _cache_size;
 	size_t _max_size;

@@ -53,7 +53,7 @@ class PUpdateCacheResult;
 class PartitionRowBatch{
 public:
 	PartitionRowBatch(int64 partition_key) : _partition_key(partition_key),  _prow_batch(NULL), _data_size(0) {
-        LOG(WARNING)<<"PartitionRowBatch():" << _partition_key;
+        LOG(INFO) << "PartitionRowBatch: " << _partition_key;
 	}
 
 	~PartitionRowBatch() {
@@ -103,7 +103,7 @@ public:
 	virtual ~ResultNode() {
 	}
 
-	void init(){
+	void init() {
 		clear();
 	}
 
@@ -155,14 +155,14 @@ public:
 	}
 
 	bool sql_key_null() {
-		return (_sql_key.hi == 0  && _sql_key.lo == 0);
+		return _sql_key.hi == 0  && _sql_key.lo == 0;
 	}
 
 	void set_sql_key(const UniqueId& sql_key) {
 		_sql_key = sql_key;
 	}
 
-	long first_partition_last_time() const{
+	long first_partition_last_time() const {
 		if (_partition_list.size() == 0) {
 			return 0;
 		} else {
@@ -205,8 +205,8 @@ public:
 	}
 	virtual ~ResultNodeList() {
 	}	
-	//TODO:Use object pool to manage ResultNode and PartitionRowBatch
-	ResultNode* new_node(const UniqueId& sql_key) {
+	
+    ResultNode* new_node(const UniqueId& sql_key) {
 		return new ResultNode(sql_key);
 	}	
 
@@ -233,8 +233,6 @@ public:
         return _node_count;
     }
 private:
-	//No node, _head = _tail = NULL
-	//One node, _head = _tail
 	ResultNode* _head;
 	ResultNode* _tail;
 	size_t _node_count;

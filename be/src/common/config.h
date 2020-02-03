@@ -502,6 +502,10 @@ namespace config {
 
     //Cache memory is pruened when reach cache_max_size + cache_elasticity_size
     CONF_Int32(cache_elasticity_size, "64");
+
+    //Maximum number of partitions corresponding to a SQL
+    CONF_Int32(cache_max_partition_count, "1024");
+    
 } // namespace config
 
 } // namespace doris
