@@ -39,6 +39,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
@@ -127,10 +128,11 @@ public class CacheAnalyzer {
         CacheProxy proxy = new CacheProxy();
         CacheProxy.FetchCacheRequest request;
         Status status = new Status();
-        if (cacheModel == CacheModel.Table) {
+        if (cacheModel == CacheModel.Table) { 
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             cacheResult = proxy.fetchCache(request, 1000, status);
             LOG.info("fetch table cache, msg={}", status.getErrorMsg());  
+            MetricRepo.COUNTER_CACHE_TABLE.increase(1L);
         } else if (cacheModel == CacheModel.Partition) {
             rewriteSelectStmt(null);
             request = new CacheProxy.FetchCacheRequest(nokeyStmt.toSql());
@@ -153,6 +155,9 @@ public class CacheAnalyzer {
             }
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);
+            MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
+            MetricRepo.COUNTER_PARTITION_ALL.increase((long)range.getSingleList().size());
+            MetricRepo.COUNTER_PARTITION_HIT.increase((long)cacheResult.getValueList().size());
         }
         isHitCache = true;
         return cacheResult;

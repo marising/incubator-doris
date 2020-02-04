@@ -54,6 +54,10 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_CACHE_TABLE;
+    public static LongCounterMetric COUNTER_CACHE_PARTITION;
+    public static LongCounterMetric COUNTER_PARTITION_ALL;
+    public static LongCounterMetric COUNTER_PARTITION_HIT;
     public static LongCounterMetric COUNTER_LOAD_ADD;
     public static LongCounterMetric COUNTER_LOAD_FINISHED;
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
@@ -193,7 +197,17 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total laod submit");
+
+        COUNTER_CACHE_TABLE = new LongCounterMetric("cache_table", "total cache table model");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_TABLE);
+        COUNTER_CACHE_PARTITION = new LongCounterMetric("cache_partition", "total cache partition model");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION);
+        COUNTER_PARTITION_ALL = new LongCounterMetric("partition_all", "scan partition of cache partition model");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_PARTITION_ALL);
+        COUNTER_PARTITION_HIT = new LongCounterMetric("partition_hit", "hit partition of cache partition model");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_PARTITION_HIT);
+
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
         COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total laod finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
