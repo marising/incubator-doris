@@ -63,6 +63,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.CacheAnalyzer.CacheModel;
 import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
@@ -543,17 +544,21 @@ public class StmtExecutor {
             handleExplainStmt(explainString);
             return;
         }
+        
+        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
+        // so We need to send fields after first batch arrived
 
         //Get result
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
-        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());        
 
-        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
         //Get rowbatch from cache
         if (Config.enable_inner_chache) {
+            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
             CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
-            if ( cacheAnalyzer.isHitCache()) {
+            CacheModel model = cacheAnalyzer.getCacheModel();
+            if (cacheResult != null) {
                 for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
@@ -561,38 +566,54 @@ public class StmtExecutor {
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
-                //get rewrite select statment
-                SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
-                planner = new Planner();
-                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
-            }
-        }
-
-        coord = new Coordinator(context, analyzer, planner);
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
-        coord.exec();
-        
-        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
-        // so We need to send fields after first batch arrived
-        while (true) {
-            batch = coord.getNext();
-            if (batch.getBatch() != null) {
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
+                if (model == CacheModel.Table) {
+                    context.getState().setEof();
+                    return;
+                } else if (model == CacheModel.Partition) {
+                    SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                    planner = new Planner();
+                    planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
                 }
-                context.updateReturnRows(batch.getBatch().getRows().size());
-                if (Config.enable_inner_chache && cacheAnalyzer.isHitCache()) {
+            }                            
+             
+            coord = new Coordinator(context, analyzer, planner);
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                    new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+            coord.exec();
+            
+            while (true) {
+                batch = coord.getNext();
+                if (batch.getBatch() != null) {
+                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                        channel.sendOnePacket(row);
+                    }
+                    context.updateReturnRows(batch.getBatch().getRows().size());
                     cacheAnalyzer.appendRowBatch(batch);
                 }
+                if (batch.isEos()) {
+                    break;
+                }
             }
-            if (batch.isEos()) {
-                break;
-            }
-        }
-        if (Config.enable_inner_chache) {
             cacheAnalyzer.updateCache();
+        } else {
+            coord = new Coordinator(context, analyzer, planner);
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+            coord.exec();
+            while (true) {
+                batch = coord.getNext();
+                if (batch.getBatch() != null) {
+                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                        channel.sendOnePacket(row);
+                    }            
+                    context.updateReturnRows(batch.getBatch().getRows().size());    
+                }
+                if (batch.isEos()) {
+                    break;
+                }        
+            }
         }
+        
         statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
     }

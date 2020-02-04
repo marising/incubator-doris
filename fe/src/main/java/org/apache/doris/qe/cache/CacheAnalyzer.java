@@ -79,7 +79,6 @@ public class CacheAnalyzer {
     private CompoundPredicate partitionKeyPredicate;
     private PartitionRange range;
     private List<RowBatch> rowBatchList;
-    private boolean isHitCache = false;
 
     public CacheAnalyzer(ConnectContext context, StmtExecutor executor, Analyzer analyzer, Planner planner) {
         parsedStmt = executor.getParsedStmt();
@@ -91,10 +90,6 @@ public class CacheAnalyzer {
         this.parsedStmt = parsedStmt;
         this.scanNodes = scanNodes;
     }
-    
-    public boolean isHitCache() {
-        return isHitCache;
-    }
 
     public CacheModel getCacheModel() {
         return cacheModel;
@@ -102,10 +97,6 @@ public class CacheAnalyzer {
 
     public CompoundPredicate getPartitionPredicate() {
         return partitionKeyPredicate;
-    }
-
-    public void setCacheModel(CacheModel cacheModel) {
-        this.cacheModel = cacheModel;
     }
 
     public SelectStmt getOrgStmt() {
@@ -121,6 +112,7 @@ public class CacheAnalyzer {
     }
     
     public CacheProxy.FetchCacheResult getCache() {
+        cacheResult = null;
         if(checkCacheModel(0) == CacheModel.None) {
             return cacheResult;
         }
@@ -159,7 +151,6 @@ public class CacheAnalyzer {
             MetricRepo.COUNTER_PARTITION_ALL.increase((long)range.getSingleList().size());
             MetricRepo.COUNTER_PARTITION_HIT.increase((long)cacheResult.getValueList().size());
         }
-        isHitCache = true;
         return cacheResult;
     }
 
