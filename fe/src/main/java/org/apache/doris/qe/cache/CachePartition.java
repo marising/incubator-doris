@@ -64,20 +64,18 @@ public class CachePartition {
             if (tailMap == null || tailMap.size() == 0) {
                 tailMap = headMap;
                 retryTimes += 1;
-                LOG.info("invalid tail map, retry {}", retryTimes); 
             }
             Long key = tailMap.firstKey();
             Backend virtualNode = tailMap.get(key);
             if (SimpleScheduler.isAlive(virtualNode)) {
-                LOG.info("backend {} alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
                 return virtualNode;
             } else {
-                LOG.info("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
+                LOG.debug("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
             }
             tailMap = tailMap.tailMap(key + 1);
             retryTimes++;
             if (retryTimes >= 5) {
-                LOG.warn("reach max retry times {}", retryTimes); 
+                LOG.warn("find backend, reach max retry times {}", retryTimes); 
                 return null;
             }
         }
@@ -94,14 +92,12 @@ public class CachePartition {
         if(realNodes.contains(backend.getId())) {
             return;
         }
-        //LOG.info("Add backend id {}", backend.getId());
         realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
             String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
-            //Long hashCode = new Long(nodeName.hashCode());
             PUniqueId nodeId = CacheProxy.getMd5(nodeName);
             virtualNodes.put(nodeId.hi, backend);
-            LOG.info("Add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
+            LOG.debug("Add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
     }
 

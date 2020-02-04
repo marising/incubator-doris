@@ -51,14 +51,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+
 public class CacheAnalyzer {
     private static final Logger LOG = LogManager.getLogger(CacheAnalyzer.class);
 
-    public SelectStmt getRewriteSelectStmt() {
-        return rewriteSelectStmt;
-    }
-
-    public enum CacheModel{
+    public enum CacheModel {
         None,
         Table,
         Partition
@@ -70,9 +67,9 @@ public class CacheAnalyzer {
     //normal sql
     private SelectStmt selectStmt;
     //no partition key's sql
-    private SelectStmt nokeySelectStmt;
+    private SelectStmt nokeyStmt;
     //rewrite sql
-    private SelectStmt rewriteSelectStmt;
+    private SelectStmt rewriteStmt;
     private List<ScanNode> scanNodes;
     private OlapScanNode olapNode;
     private OlapTable olapTable;
@@ -80,21 +77,8 @@ public class CacheAnalyzer {
     private Column partColumn;
     private CompoundPredicate partitionKeyPredicate;
     private PartitionRange range;
-    private PartitionRange partitionRange;
     private List<RowBatch> rowBatchList;
-    private boolean isHitCache;
-
-    public boolean getIsHitCache() {
-        return isHitCache;
-    }
-
-    public CacheModel getCacheModel() {
-        return cacheModel;
-    }
-
-    public void setCacheModel(CacheModel cacheModel) {
-        this.cacheModel = cacheModel;
-    }
+    private boolean isHitCache = false;
 
     public CacheAnalyzer(ConnectContext context, StmtExecutor executor, Analyzer analyzer, Planner planner) {
         parsedStmt = executor.getParsedStmt();
@@ -102,13 +86,41 @@ public class CacheAnalyzer {
         cacheResult = null;
     }
 
-    public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes){
+    public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes) {
         this.parsedStmt = parsedStmt;
         this.scanNodes = scanNodes;
     }
+    
+    public boolean isHitCache() {
+        return isHitCache;
+    }
 
+    public CacheModel getCacheModel() {
+        return cacheModel;
+    }
+
+    public CompoundPredicate getPartitionPredicate() {
+        return partitionKeyPredicate;
+    }
+
+    public void setCacheModel(CacheModel cacheModel) {
+        this.cacheModel = cacheModel;
+    }
+
+    public SelectStmt getOrgStmt() {
+        return selectStmt;
+    }
+    
+    public SelectStmt getNokeyStmt() {
+        return nokeyStmt;
+    }
+ 
+    public SelectStmt getRewriteStmt() {
+        return rewriteStmt;
+    }
+    
     public CacheProxy.FetchCacheResult getCache() {
-        if(checkCacheModel(0) == CacheModel.None){
+        if(checkCacheModel(0) == CacheModel.None) {
             return cacheResult;
         }
         CachePartition cachePart = CachePartition.getInstance();
@@ -120,42 +132,40 @@ public class CacheAnalyzer {
             cacheResult = proxy.fetchCache(request, 1000, status);
             LOG.info("fetch table cache, msg={}", status.getErrorMsg());  
         } else if (cacheModel == CacheModel.Partition) {
-            nokeySelectStmt = (SelectStmt) selectStmt.clone();
-            request = new CacheProxy.FetchCacheRequest(nokeySelectStmt.toSql());
-            //request.addParam();
-            rewriteNoKeySelectStmt(nokeySelectStmt, partitionKeyPredicate);
-            //List<Long> keyRangeList = getPartitionRange(this.partitionKeyPredicate);
-            range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, this.partitionInfo);
-            if( !range.analytics() ){
+            rewriteSelectStmt(null);
+            request = new CacheProxy.FetchCacheRequest(nokeyStmt.toSql());
+            range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, 
+                                        this.partitionInfo);
+            if (!range.analytics()) {
                 return cacheResult;
             }
-            for(PartitionRange.PartitionSingle single : range.getSingleList()){
-                request.addParam(single.getPartitionKey(), single.getPartition().getVisibleVersion(),
-                        single.getPartition().getVisibleVersionTime());
+            
+            for (PartitionRange.PartitionSingle single : range.getSingleList()) {
+                request.addParam(single.getPartitionKey(),
+                        single.getPartition().getVisibleVersion(),
+                        single.getPartition().getVisibleVersionTime()
+                );
             }
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch partition cache, msg={}", status.getErrorMsg());
-            for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()){
+            for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
                 range.setCacheFlag(value.getPartitionKey());
             }
-            rewriteSelectStmt = (SelectStmt) selectStmt.clone();
-            //CompoundPredicate newPredicate = range.getPartitionKeyPredicate();
-            List<PartitionRange.PartitionSingle> newSingleList = range.newPartitionRange();
-            //rewriteScanRangeWhereClause(rewriteSelectStmt, partitionKeyPredicate, newPredicate);
-            //range.rewritePartitionPredicate(rewriteSelectStmt);
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+            rewriteSelectStmt(newRangeList);
         }
         isHitCache = true;
         return cacheResult;
     }
 
     //Append rowBatch to list,then updateCache
-    public void appendRowBatch(RowBatch rowBatch){
+    public void appendRowBatch(RowBatch rowBatch) {
         rowBatchList.add(rowBatch);
     }
 
-    public void updateCache(){
-        MySqlRowBuffer mysqlBuffer = new MySqlRowBuffer(selectStmt.getResultExprs(), selectStmt.getColLabels(),
-                partColumn);
+    public void updateCache() {
+        MySqlRowBuffer mysqlBuffer = new MySqlRowBuffer(this.selectStmt.getResultExprs(), 
+                this.selectStmt.getColLabels(), partColumn);
         for (RowBatch row : rowBatchList) {
             mysqlBuffer.appendRowBatch(row);
         }
@@ -166,11 +176,10 @@ public class CacheAnalyzer {
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
         proxy.updateCache(updateRequest,status);
-        LOG.info("update cache, sqlKey={}, status={}", updateRequest.getSqlKey(), status.getErrorMsg());
     }
 
     /**
-     * Types of SQL that can be cached
+     * Check cache mode with SQL and table
      * 1、Only Olap table
      * 2、The update time of the table is before Config.last_version_min_delta_time minute
      * 2、PartitionType is PartitionType.RANGE, and partition key has only one column
@@ -188,8 +197,7 @@ public class CacheAnalyzer {
         if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
             return CacheModel.None;
         }
-        //Clone selectStmt, then will rewrite
-        selectStmt = (SelectStmt) parsedStmt;
+        this.selectStmt = (SelectStmt) parsedStmt;
         //Check the last update time of the table
         List<Pair<Long, Integer>> tblTimeList = Lists.newArrayList();
         for (int i = 0; i < scanNodes.size(); i++) {
@@ -203,8 +211,8 @@ public class CacheAnalyzer {
             tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
         }
         Collections.sort(tblTimeList, Collections.reverseOrder());
-        if(now == 0){
-            now = nowtime();//System.currentTimeMillis();
+        if (now == 0) {
+            now = nowtime();
         }
         if ((now - tblTimeList.get(0).first) >= Config.last_version_min_delta_time * 60000) {
             return CacheModel.Table;
@@ -219,85 +227,115 @@ public class CacheAnalyzer {
         olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
         olapTable = olapNode.getOlapTable();
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.info("The partition of OlapTable not RANGE Type.");
+            LOG.debug("The partition of OlapTable not RANGE Type.");
             return CacheModel.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.info("Size of columns for partition key {}", columns.size());
+            LOG.debug("Size of columns for partition key {}", columns.size());
             return CacheModel.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
-        if (!checkGroupByPartitionKey(selectStmt, partColumn)) {
-	    LOG.info("Not group by partition key, key={}",partColumn.getName());
+        if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
+    	    LOG.debug("Not group by partition key, key={}",partColumn.getName());
             return CacheModel.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
-        getPartitionKeyFromSelectStmt(selectStmt, partColumn, compoundPredicates);
+        getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.info("the predicate size include partition key has {}.", compoundPredicates.size());
+            LOG.debug("the predicate size include partition key has {}.", compoundPredicates.size());
             return CacheModel.None;
         }
         partitionKeyPredicate = compoundPredicates.get(0);
-        LOG.info("predicate sql {}", partitionKeyPredicate.toSql());
         return CacheModel.Partition;
     }
 
-    public long nowtime(){
-        return System.currentTimeMillis();        
+    public long nowtime() {
+        return System.currentTimeMillis();
     }
 
-    private void rewriteScanRangeWhereClause(SelectStmt selectStmt, CompoundPredicate predicate, CompoundPredicate newPredicate){
-        
-    }
-
-    /*
+    /**
     * Set the predicate containing partition key to null
      */
-    private void rewriteNoKeySelectStmt(SelectStmt selectStmt, CompoundPredicate predicate) {
-        if(selectStmt.getWhereClause().equals(predicate)){
-            selectStmt.setWhereClause(null);
-        }else{
-            rewriteNoKeyWhereClause(selectStmt.getWhereClause(), predicate);
+    public void rewriteSelectStmt(List<PartitionRange.PartitionSingle> newRangeList) {
+        if (newRangeList == null) {
+            this.nokeyStmt = (SelectStmt) this.selectStmt.clone();
+            rewriteSelectStmt(nokeyStmt, this.partitionKeyPredicate, null);
+        } else {
+            this.rewriteStmt = (SelectStmt) this.selectStmt.clone();
+            rewriteSelectStmt(rewriteStmt, this.partitionKeyPredicate, newRangeList);
         }
-        List<TableRef> tableRefs = selectStmt.getTableRefs();
+    }
+
+    private void rewriteSelectStmt(SelectStmt newStmt, CompoundPredicate predicate, 
+        List<PartitionRange.PartitionSingle> newRangeList) {
+        newStmt.setWhereClause(
+            rewriteWhereClause(newStmt.getWhereClause(), predicate, newRangeList)
+        );
+        List<TableRef> tableRefs = newStmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tblRef;
                 QueryStmt queryStmt = viewRef.getViewStmt();
                 if (queryStmt instanceof SelectStmt) {
-                    rewriteNoKeySelectStmt((SelectStmt) selectStmt, predicate);
+                    rewriteSelectStmt((SelectStmt) queryStmt, predicate, newRangeList);
                 }
             }
         }
     }
 
-    private void rewriteNoKeyWhereClause(Expr expr, CompoundPredicate predicate){        
-        for(int i = 0; i < expr.getChildren().size();i++) {            
-            if(expr.getChild(i).equals(predicate)){
+    /**
+    * P1 And P2 And P3 And P4
+    */
+    private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate, 
+        List<PartitionRange.PartitionSingle> newRangeList) {
+        if (expr==null) {
+            return null;
+        }
+        if (!(expr instanceof CompoundPredicate)) {
+            return expr;
+        }
+        if (expr.equals(predicate)) {
+            if (newRangeList == null) {
+                return null;
+            } else {                 
+                getPartitionRange().rewritePredicate((CompoundPredicate)expr, newRangeList);
+                return expr;
+            }
+        }
+        
+        for (int i = 0; i < expr.getChildren().size(); i++) {
+            Expr child = rewriteWhereClause(expr.getChild(i), predicate, newRangeList); 
+            if (child == null) {
                 expr.removeNode(i);
                 i--;
-                break;
             } else {
-                rewriteNoKeyWhereClause(expr.getChild(i), predicate); 
+                expr.setChild(i, child);
             }
+        }
+        if (expr.getChildren().size() == 0) {
+            return null;
+        } else if (expr.getChildren().size() == 1) {
+            return expr.getChild(0); 
+        } else {
+            return expr;
         }
     }
 
-    private void getPartitionKeyFromSelectStmt(SelectStmt selectStmt, Column partColumn,
+    private void getPartitionKeyFromSelectStmt(SelectStmt stmt, Column partColumn,
                                                             List<CompoundPredicate> compoundPredicates) {
-        getPartitionKeyFromWhereClause(selectStmt.getWhereClause(), partColumn, compoundPredicates);
-        List<TableRef> tableRefs = selectStmt.getTableRefs();
+        getPartitionKeyFromWhereClause(stmt.getWhereClause(), partColumn, compoundPredicates);
+        List<TableRef> tableRefs = stmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tblRef;
                 QueryStmt queryStmt = viewRef.getViewStmt();
                 if (queryStmt instanceof SelectStmt) {
-                    getPartitionKeyFromSelectStmt((SelectStmt) selectStmt, partColumn, compoundPredicates);
+                    getPartitionKeyFromSelectStmt((SelectStmt) stmt, partColumn, compoundPredicates);
                 }
             }
         }
@@ -311,7 +349,7 @@ public class CacheAnalyzer {
      */
     private void getPartitionKeyFromWhereClause(Expr expr, Column partColumn,
                                                              List<CompoundPredicate> compoundPredicates) {
-        if(expr == null) {
+        if (expr == null) {
             return;
         }
         if (expr instanceof CompoundPredicate) {
@@ -336,24 +374,21 @@ public class CacheAnalyzer {
     }
 
     /*
-    * Check the selectStmt and tableRefs always group by park key
+    * Check the selectStmt and tableRefs always group by partition key
     * 1. At least one group by
     * 2. group by must contain partition key
     * 3. AggregateInfo cannot be distinct agg
      */
-    private boolean checkGroupByPartitionKey(SelectStmt selectStmt, Column partColumn) {
+    private boolean checkGroupByPartitionKey(SelectStmt stmt, Column partColumn) {
         List<AggregateInfo> aggInfoList = Lists.newArrayList();
-        getAggInfoList(selectStmt, aggInfoList);
-        LOG.info("agg list {}", aggInfoList.size());
+        getAggInfoList(stmt, aggInfoList);
         int groupbyCount = 0;
         for (AggregateInfo aggInfo : aggInfoList) {
             if (aggInfo.isDistinctAgg()) {
-                LOG.info("agg function");
                 return false;
             }
             ArrayList<Expr> groupExprs = aggInfo.getGroupingExprs();
             if (groupExprs == null) {
-                LOG.info("group is null");
                 continue;
             }
             groupbyCount += 1;
@@ -361,11 +396,8 @@ public class CacheAnalyzer {
             for (Expr groupExpr : groupExprs) {
                 SlotRef slot = (SlotRef) groupExpr;
                 if (partColumn.getName().equals(slot.getColumnName())) {
-                    LOG.info("matched");
                     matched = true;
                     break;
-                }else{
-                    LOG.info("matched, part key{}, group by{}", partColumn.getName(), slot.getColumnName());                    
                 }
             }
             if (!matched) {
@@ -375,19 +407,18 @@ public class CacheAnalyzer {
         return groupbyCount > 0 ? true : false;
     }
 
-    private void getAggInfoList(SelectStmt selectStmt, List<AggregateInfo> aggInfoList) {        
-        AggregateInfo aggInfo = selectStmt.getAggInfo();        
+    private void getAggInfoList(SelectStmt stmt, List<AggregateInfo> aggInfoList) {        
+        AggregateInfo aggInfo = stmt.getAggInfo();        
         if (aggInfo != null) {
             aggInfoList.add(aggInfo);
         }
-        LOG.info("agg size {}", aggInfoList.size());
-        List<TableRef> tableRefs = selectStmt.getTableRefs();
+        List<TableRef> tableRefs = stmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tblRef;
                 QueryStmt queryStmt = viewRef.getViewStmt();
                 if (queryStmt instanceof SelectStmt) {
-                    getAggInfoList((SelectStmt) selectStmt, aggInfoList);
+                    getAggInfoList(stmt, aggInfoList);
                 }
             }
         }
@@ -402,18 +433,14 @@ public class CacheAnalyzer {
         }
         return maxTime;
     }
-
-    //for unit test only
-    public SelectStmt testNokeySelectStmt(){
-        SelectStmt tmpStmt = (SelectStmt) selectStmt.clone();
-        rewriteNoKeySelectStmt(tmpStmt, partitionKeyPredicate);
-        return tmpStmt;
-    }
-
-    //for unit test only
-    public PartitionRange testPartitionRange(){
-        PartitionRange tmpRange = new PartitionRange(this.partitionKeyPredicate, 
-            this.olapTable, this.partitionInfo);
-        return tmpRange;
-    }
+    
+    public PartitionRange getPartitionRange() {
+        if (range == null) {
+            range = new PartitionRange(this.partitionKeyPredicate, 
+                this.olapTable, this.partitionInfo);
+            return range;
+        } else {
+            return range;
+        }
+    } 
 }

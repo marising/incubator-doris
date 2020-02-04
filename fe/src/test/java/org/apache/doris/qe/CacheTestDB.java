@@ -148,6 +148,8 @@ public class CacheTestDB {
 
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
 
+        Partition part12 = new Partition(2020112, "p20200112", baseIndex, distInfo);
+        part12.SetVisibleVersion(1,1,1578762000000L);     //2020-01-12 1:00:00
         Partition part13 = new Partition(2020113, "p20200113", baseIndex, distInfo);
         part13.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
         Partition part14 = new Partition(2020114, "p20200114", baseIndex, distInfo);
@@ -157,6 +159,7 @@ public class CacheTestDB {
 
         OlapTable table = new OlapTable(20000L, "userprofile", columns,KeysType.DUP_KEYS, partInfo, distInfo);
 
+        table.addPartition(part12);
         table.addPartition(part13);
         table.addPartition(part14);
         table.addPartition(part15);
@@ -192,6 +195,8 @@ public class CacheTestDB {
         MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
+        Partition part12 = new Partition(2020112, "p20200112", baseIndex, distInfo);
+        part12.SetVisibleVersion(1,1,1578762000000L);     //2020-01-12 1:00:00
         Partition part13 = new Partition(2020113, "p20200113", baseIndex, distInfo);
         part13.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
         Partition part14 = new Partition(2020114, "p20200114", baseIndex, distInfo);
@@ -200,6 +205,7 @@ public class CacheTestDB {
         part15.SetVisibleVersion(2,2,1579053661000L);     //2020-01-15 10:01:01
 
         OlapTable table = new OlapTable(30000L, "appevent", columns,KeysType.DUP_KEYS, partInfo, distInfo);
+        table.addPartition(part12);
         table.addPartition(part13);
         table.addPartition(part14);
         table.addPartition(part15);

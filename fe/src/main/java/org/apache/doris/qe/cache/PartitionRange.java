@@ -24,7 +24,6 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Column;
@@ -43,10 +42,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
+/*
+ * Convert the range of the partition to the list
+ */
 public class PartitionRange {
     private static final Logger LOG = LogManager.getLogger(PartitionRange.class);
 
-    public class PartitionSingle{
+    public class PartitionSingle {
         private Partition partition;
         private PartitionKey key;
         private long partitionId;
@@ -92,9 +94,7 @@ public class PartitionRange {
     private OlapTable olapTable;
     private RangePartitionInfo rangePartitionInfo;
     private Column partitionColumn;
-    //private List<PartitionKey> partitionKeyList;
     private List<PartitionSingle> partitionSingleList;
-
 
     public CompoundPredicate getPartitionKeyPredicate() {
         return partitionKeyPredicate;
@@ -121,9 +121,10 @@ public class PartitionRange {
         this.partitionSingleList = singleList;
     }
 
-    public PartitionRange(){
+    public PartitionRange() {
     }
-    public PartitionRange(CompoundPredicate partitionKeyPredicate, OlapTable olapTable, RangePartitionInfo rangePartitionInfo){
+
+    public PartitionRange(CompoundPredicate partitionKeyPredicate, OlapTable olapTable, RangePartitionInfo rangePartitionInfo) {
         this.partitionKeyPredicate = partitionKeyPredicate;
         this.olapTable = olapTable;
         this.rangePartitionInfo = rangePartitionInfo;
@@ -134,13 +135,13 @@ public class PartitionRange {
      * analytics PartitionKey and PartitionInfo
      * @return
      */
-    public boolean analytics(){
-        if (rangePartitionInfo.getPartitionColumns().size() != 1){
+    public boolean analytics() {
+        if (rangePartitionInfo.getPartitionColumns().size() != 1) {
             return false;
         }
         partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
         PartitionColumnFilter filter = createPartitionFilter(this.partitionKeyPredicate, partitionColumn);
-        try{
+        try {
             List<PartitionSingle> singleList = getPartitionKeyRange(filter, partitionColumn);
             getTablePartitionList(olapTable, singleList);
         } catch (AnalysisException e) {
@@ -150,7 +151,7 @@ public class PartitionRange {
         return true;
     }
 
-    public boolean setCacheFlag(long partitionKey){
+    public boolean setCacheFlag(long partitionKey) {
         for(PartitionSingle single : partitionSingleList) {
             if (single.getPartitionKey() == partitionKey) {
                 single.setFromCache(true);
@@ -163,40 +164,97 @@ public class PartitionRange {
      * Support left or right hit cache, not support middle.
      * 20200113-2020115, not support 20200114
      */
-    public List<PartitionSingle> newPartitionRange(){
-        List<PartitionSingle> boundList = Lists.newArrayList();
+    public List<PartitionSingle> newPartitionRange() {
+        List<PartitionSingle> rangeList = Lists.newArrayList();
         if (partitionSingleList.size() == 0) {
-            return boudList;
+            return rangeList;
         }
         //1 left, 2 right
         int bound = 0;
         int index = 0;
-        if (partitionSingleList.get(0).isFromCache()){
+        if (partitionSingleList.get(0).isFromCache()) {
             for (int i = 1; i < partitionSingleList.size()-1; i++) {
-                if (partitionSingleList.get(i).isFromCache()){
+                if (partitionSingleList.get(i).isFromCache()) {
                     index = i;
                 } else {
                     break;
                 }
             }
-            boudList.add(partitionSingleList.get(index+1));
-            boudList.add(partitionSingleList.get(partitionSingleList.size()-1));
+            rangeList.add(partitionSingleList.get(index+1));
+            rangeList.add(partitionSingleList.get(partitionSingleList.size()-1));
         } else if (partitionSingleList.get(partitionSingleList.size()-1).isFromCache()) {
             bound = 2;
-            for(int i = partitionSingleList.size()-1; i > 0; i-- ){
-                if (partitionSingleList.get(i).isFromCache()){
+            for (int i = partitionSingleList.size()-1; i > 0; i--) {
+                if (partitionSingleList.get(i).isFromCache()) {
                     index = i;
                 } else {
                     break;
                 }
             } 
-            boudList.add(partitionSingleList.get(0));
-            boudList.add(partitionSingleList.get(index-1));
-        } else{
-            boudList.add(partitionSingleList.get(0));
-            boudList.add(partitionSingleList.get(partitionSingleList.size()-1));
+            rangeList.add(partitionSingleList.get(0));
+            rangeList.add(partitionSingleList.get(index-1));
+        } else {
+            rangeList.add(partitionSingleList.get(0));
+            rangeList.add(partitionSingleList.get(partitionSingleList.size()-1));
         }
-        return boudList;
+        return rangeList;
+    }
+
+    public boolean rewritePredicate(CompoundPredicate predicate, List<PartitionSingle> rangeList) {
+        if (predicate.getOp() != CompoundPredicate.Operator.AND) {
+            LOG.debug("predicate op {}", predicate.getOp().toString());
+            return false;
+        }
+        for (Expr expr : predicate.getChildren()) {
+            if (expr instanceof BinaryPredicate) {
+                BinaryPredicate binPredicate = (BinaryPredicate) expr;
+                BinaryPredicate.Operator op = binPredicate.getOp();
+                if (binPredicate.getChildren().size() != 2) {
+                    LOG.info("binary predicate children size {}", binPredicate.getChildren().size());
+                    continue;
+                }
+                if (op == BinaryPredicate.Operator.NE) {
+                    LOG.info("binary predicate op {}", op.toString());
+                    continue;
+                }
+                IntLiteral newLiteral = new IntLiteral(0);
+                LOG.info("op {}", op.toString());
+                switch (op) {
+                    case LE: //<=
+                        newLiteral = new IntLiteral(rangeList.get(1).getPartitionKey());
+                        break;
+                    case LT: //<
+                        newLiteral = new IntLiteral(rangeList.get(1).getPartitionKey() + 1);
+                        break;
+                    case GE: //>=
+                        newLiteral = new IntLiteral(rangeList.get(0).getPartitionKey());
+                        break;
+                    case GT: //>
+                        newLiteral = new IntLiteral(rangeList.get(0).getPartitionKey() - 1);
+                        break;
+                    default:
+                        break;
+                }
+                if (newLiteral.getValue() == 0) {
+                    continue;
+                }
+                if (binPredicate.getChild(1) instanceof LiteralExpr) {
+                    binPredicate.removeNode(1);
+                    binPredicate.addChild(newLiteral);
+                } else if (binPredicate.getChild(0) instanceof LiteralExpr) {
+                    binPredicate.removeNode(0);
+                    binPredicate.setChild(0, newLiteral);
+                } else {
+                    continue;
+                }
+            } else if (expr instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) expr;
+                if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
+                    continue;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -206,10 +264,9 @@ public class PartitionRange {
      * ( PARTITION p20200101 VALUES [("20200101"), ("20200102")),
      * PARTITION p20200102 VALUES [("20200102"), ("20200103")) )
      */
-    private void getTablePartitionList(OlapTable table, List<PartitionSingle> singleList){
-        //find the partition id from key range
+    private void getTablePartitionList(OlapTable table, List<PartitionSingle> singleList) {
         Map<Long, Range<PartitionKey>>  range =  rangePartitionInfo.getIdToRange();
-        for(Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getIdToRange().entrySet() ){
+        for(Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getIdToRange().entrySet() ) {
             Long partId = entry.getKey();
             for(PartitionSingle single : singleList) {
                 if (entry.getValue().contains(single.getKey())) {
@@ -219,8 +276,8 @@ public class PartitionRange {
                 }
             }
         }
-        for(PartitionSingle single : singleList){
-            if( single.getPartitionId() != 0){
+        for(PartitionSingle single : singleList) {
+            if( single.getPartitionId() != 0) {
                 single.setPartition(table.getPartition(single.getPartitionId()));
                 partitionSingleList.add(single);
             }
@@ -260,7 +317,7 @@ public class PartitionRange {
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,
                                                         Column partitionColumn) {
         if( partitionKeyPredicate.getOp() != CompoundPredicate.Operator.AND ){
-            LOG.warn("not and op");
+            LOG.debug("not and op");
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();;
@@ -273,7 +330,7 @@ public class PartitionRange {
                     continue;
                 }
                 if (binPredicate.getOp() == BinaryPredicate.Operator.NE){
-                    LOG.warn("not support NE operator");
+                    LOG.debug("not support NE operator");
                     continue;
                 }
                 Expr slotBinding;
@@ -282,31 +339,27 @@ public class PartitionRange {
                 } else if (binPredicate.getChild(0) instanceof LiteralExpr) {
                     slotBinding = binPredicate.getChild(0);
                 } else {
-                    LOG.warn("not find LiteralExpr");
+                    LOG.debug("not find LiteralExpr");
                     continue;
                 }
                 
                 LiteralExpr literal = (LiteralExpr) slotBinding;
-                if(literal instanceof IntLiteral){
-                    LOG.warn("literal value {}", literal.getRealValue());
-                }
                 switch (op) {
-                    case EQ:
+                    case EQ: //=
                         partitionColumnFilter.setLowerBound(literal, true);
                         partitionColumnFilter.setUpperBound(literal, true);
                         break;
-                    case LE:
+                    case LE: //<=
                         partitionColumnFilter.setUpperBound(literal, true);
-                        partitionColumnFilter.lowerBoundInclusive = true;
                         break;
-                    case LT:
+                    case LT: //<
                         partitionColumnFilter.setUpperBound(literal, false);
-                        partitionColumnFilter.lowerBoundInclusive = true;
                         break;
-                    case GE:
+                    case GE: //>=
                         partitionColumnFilter.setLowerBound(literal, true);
+                        
                         break;
-                    case GT:
+                    case GT: //>
                         partitionColumnFilter.setLowerBound(literal, false);
                         break;
                     default:

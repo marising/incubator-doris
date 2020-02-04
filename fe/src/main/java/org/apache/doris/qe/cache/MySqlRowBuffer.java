@@ -40,6 +40,7 @@ public class MySqlRowBuffer {
         keyType = Type.INVALID;
         this.init();
     }
+
     public void init() {
         for (int i = 0; i < columnLabelList.size(); i++) {
             int size = resultExprList.get(i).getType().getColumnSize();
@@ -50,6 +51,7 @@ public class MySqlRowBuffer {
             begin += size;
         }
     }
+
     public void appendRowBatch(RowBatch rowBatch) {
         if (keyType == Type.INVALID) {
             return;

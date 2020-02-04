@@ -337,7 +337,7 @@ public class Partition extends MetaObject implements Writable {
 
         out.writeLong(visibleVersion);
         //TODO: read and write format
-        out.writeLong(visibleVersionTime);
+        //out.writeLong(visibleVersionTime);
         out.writeLong(visibleVersionHash);
 
         out.writeLong(nextVersion);

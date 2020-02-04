@@ -59,7 +59,7 @@ public class CacheProxy {
             super(partitionKey, lastVersion, lastVersionTime);
             this.rowBatch = rowBatch;
         }
-        public void getRpcValue(PUpdateCacheRequest rpcRequest){
+        public void getRpcValue(PUpdateCacheRequest rpcRequest) {
             PUpdateCacheValue value = new PUpdateCacheValue();
             value.partition_key = this.partitionKey;
             value.last_version = this.lastVersion;
@@ -67,6 +67,7 @@ public class CacheProxy {
             rpcRequest.value.add(value);
         }
     }
+
     public static class UpdateCacheRequest {
         private String sqlStr;
         private PUniqueId sqlKey;
@@ -127,7 +128,7 @@ public class CacheProxy {
             return lastVersionTime;
         }
 
-        public void getRpcPram(PFetchCacheRequest rpcRequest){
+        public void getRpcPram(PFetchCacheRequest rpcRequest) {
             PFetchCacheParam param = new PFetchCacheParam();
             param.partition_key = this.partitionKey;
             param.last_version = this.lastVersion;
@@ -166,6 +167,7 @@ public class CacheProxy {
             FetchCacheParam param = new FetchCacheParam(partitionKey, lastVersion, lastVersionTime);
             paramList.add(param);
         }
+
         public void getRpcRequest(PFetchCacheRequest rpcReq) {
             rpcReq.sql_key = sqlKey;
             for (FetchCacheParam param : paramList) {
@@ -191,7 +193,7 @@ public class CacheProxy {
         public void setRowBatch(RowBatch rowBatch) {
             this.rowBatch = rowBatch;
         }
-        public void serialize(byte[] buffer, boolean eos) throws TException{
+        public void serialize(byte[] buffer, boolean eos) throws TException {
             TResultBatch resultBatch = new TResultBatch();
             TDeserializer deserializer = new TDeserializer();
             deserializer.deserialize(resultBatch, buffer);
@@ -200,7 +202,7 @@ public class CacheProxy {
         }
     }
 
-    public static class FetchCacheResult{
+    public static class FetchCacheResult {
         private List<FetchCacheValue> valueList;
 
         public List<FetchCacheValue> getValueList() {
@@ -210,8 +212,8 @@ public class CacheProxy {
             this.valueList = valueList;
         }
 
-        public void setResult(PFetchCacheResult rpcResult) throws TException{
-            for(int i = 0; i < rpcResult.value.size(); i++){
+        public void setResult(PFetchCacheResult rpcResult) throws TException {
+            for (int i = 0; i < rpcResult.value.size(); i++) {
                 PFetchCacheValue rpcValue = rpcResult.value.get(i);
                 FetchCacheValue value = new FetchCacheValue();
                 value.setPartitionKey(rpcValue.partition_key);
@@ -229,7 +231,7 @@ public class CacheProxy {
         PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
         if (backend == null) {
-            LOG.warn("update cache cant find backend, sqlKey={}", sqlKey);
+            LOG.warn("update cache can't find backend, sqlKey={}", sqlKey);
             return;
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
@@ -276,7 +278,7 @@ public class CacheProxy {
         } catch (InterruptedException e) {
             LOG.warn("future get interrupted Exception, sqlKey={}", sqlKey, e);
             status.setStatus("interrupted exception");
-        } catch (ExecutionException e){
+        } catch (ExecutionException e) {
             LOG.warn("future get execution exception, sqlKey={}", sqlKey, e);
             status.setStatus("execution exception");
         } catch (TException e) {
@@ -292,9 +294,9 @@ public class CacheProxy {
 
     public void clearCache(UpdateCacheRequest request, List<Backend> beList) {
         int retry;
-        for(Backend backend : beList){
+        for (Backend backend : beList) {
             retry = 1;
-            while (retry < 3 && !this.clearCache(request, backend)){
+            while (retry < 3 && !this.clearCache(request, backend)) {
                 retry++;
             }
             if (retry >= 3) {
@@ -321,9 +323,9 @@ public class CacheProxy {
 
     public static PUniqueId getMd5(String str) {
         MessageDigest msgDigest;
-        try{
+        try {
             msgDigest = MessageDigest.getInstance("MD5");
-        } catch(Exception e){
+        } catch(Exception e) {
             return null;
         }
         final byte[] digest = msgDigest.digest(str.getBytes());
@@ -340,5 +342,4 @@ public class CacheProxy {
         }
         return value;
     }
-
 }

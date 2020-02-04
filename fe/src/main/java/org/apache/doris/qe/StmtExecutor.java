@@ -549,23 +549,23 @@ public class StmtExecutor {
         MysqlChannel channel = context.getMysqlChannel();
         sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
 
-        //Get rowbatch from cache
         CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
-        CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
-        if ( cacheAnalyzer.getIsHitCache()) {
-            for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
-                batch = value.getRowBatch();
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
-                    //channel.sendOnePacket(value.getRowBatch().getRows());
+        //Get rowbatch from cache
+        if (Config.enable_inner_chache) {
+            CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
+            if ( cacheAnalyzer.isHitCache()) {
+                for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
+                    batch = value.getRowBatch();
+                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                        channel.sendOnePacket(row);
+                    }
+                    context.updateReturnRows(batch.getBatch().getRows().size());
                 }
-                context.updateReturnRows(batch.getBatch().getRows().size());
+                //get rewrite select statment
+                SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                planner = new Planner();
+                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
             }
-            //get rewrite select statment
-            SelectStmt newSelectStmt = cacheAnalyzer.getRewriteSelectStmt();
-            // create plan again
-            planner = new Planner();
-            planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
         }
 
         coord = new Coordinator(context, analyzer, planner);
@@ -582,7 +582,7 @@ public class StmtExecutor {
                     channel.sendOnePacket(row);
                 }
                 context.updateReturnRows(batch.getBatch().getRows().size());
-                if(cacheAnalyzer.getIsHitCache()){
+                if (Config.enable_inner_chache && cacheAnalyzer.isHitCache()) {
                     cacheAnalyzer.appendRowBatch(batch);
                 }
             }
@@ -590,7 +590,9 @@ public class StmtExecutor {
                 break;
             }
         }
-        cacheAnalyzer.updateCache();
+        if (Config.enable_inner_chache) {
+            cacheAnalyzer.updateCache();
+        }
         statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
     }
