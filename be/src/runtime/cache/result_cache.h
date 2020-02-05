@@ -44,6 +44,9 @@ public:
 	ResultCache(int32 max_size, int32 elasticity_size) {
 		_max_size = max_size * 1024 * 1024;
 		_elasticity_size = elasticity_size * 1024 * 1024;
+        _cache_size = 0;
+        _node_count = 0;
+        _partition_count = 0; 
 	}
 
 	virtual ~ResultCache() {
@@ -61,6 +64,7 @@ public:
 private:
 	void prune();
 	void remove(ResultNode* result_node);
+    void update_monitor();
 
 	//At the same time, multithreaded reading
 	//Single thread updating and cleaning(only single be, Fe is not affected)
@@ -71,7 +75,8 @@ private:
 	size_t _cache_size;
 	size_t _max_size;
 	double _elasticity_size;
-
+    size_t _node_count;
+	size_t _partition_count;
 private:
 	ResultCache();
 	ResultCache(const ResultCache&);

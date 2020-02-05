@@ -53,7 +53,6 @@ class PUpdateCacheResult;
 class PartitionRowBatch{
 public:
 	PartitionRowBatch(int64 partition_key) : _partition_key(partition_key),  _prow_batch(NULL), _data_size(0) {
-        LOG(INFO) << "PartitionRowBatch: " << _partition_key;
 	}
 
 	~PartitionRowBatch() {
@@ -94,10 +93,10 @@ typedef boost::unordered_map<int64, PartitionRowBatch*> PartitionRowBatchMap;
 */
 class ResultNode {
 public:
-    ResultNode() : _sql_key(0,0), _prev(NULL), _next(NULL) {
+    ResultNode() : _sql_key(0,0), _prev(NULL), _next(NULL), _data_size(0) {
     }
 
-	ResultNode(const UniqueId& sql_key) : _sql_key(sql_key), _prev(NULL), _next(NULL) {	
+	ResultNode(const UniqueId& sql_key) : _sql_key(sql_key), _prev(NULL), _next(NULL), _data_size(0) {	
 	}
 
 	virtual ~ResultNode() {
@@ -107,8 +106,9 @@ public:
 		clear();
 	}
 
-	PCacheStatus update_partition(const PUpdateCacheRequest* request, size_t& update_size, bool& update_first);
-	PCacheStatus get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& rowBatchList, bool& hit_first);
+	PCacheStatus update_partition(const PUpdateCacheRequest* request, bool& update_first);
+	PCacheStatus get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& rowBatchList, 
+        bool& hit_first);
 	size_t prune_first();
 	void clear();
 
@@ -236,7 +236,6 @@ private:
 	ResultNode* _head;
 	ResultNode* _tail;
 	size_t _node_count;
-	size_t _data_size;
 };
 
 }

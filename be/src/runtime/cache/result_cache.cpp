@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/doris_metrics.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
 
@@ -23,7 +24,6 @@ namespace doris {
 void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult* response) { 
     ResultNode* node;
     PCacheStatus status;
-    size_t update_size = 0;
     bool update_first = false;
     boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
@@ -31,19 +31,24 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
     auto it = _node_map.find(sql_key);
     if (it != _node_map.end()) {
         node = it->second;
-        status = node->update_partition(request, update_size, update_first);
+        _cache_size -= node->get_data_size();
+        _partition_count -= node->get_partition_count();
+        status = node->update_partition(request, update_first);
     } else {
         node = _node_list.new_node(sql_key);
-        status = node->update_partition(request, update_size, update_first);
+        status = node->update_partition(request, update_first);
         _node_list.push(node);
-        _node_map[sql_key] = node;                
+        _node_map[sql_key] = node;
+        _node_count += 1;
     }
     if (update_first){
         _node_list.move_tail(node);
     }
-    _cache_size += update_size;
+    _cache_size += node->get_data_size();
+    _partition_count += node->get_partition_count();
     response->set_status(status);
     prune();
+    update_monitor();
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
@@ -75,6 +80,20 @@ bool ResultCache::contains(const UniqueId& sql_key) {
     return _node_map.find(sql_key) != _node_map.end();
 }
 
+void ResultCache::clear(){
+    boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
+    LOG(INFO) << "clear() cache, node size:" << _node_list.get_node_count()
+        << ", map size:" << _node_map.size();
+    _node_list.clear();
+    _node_map.clear();
+    _cache_size = 0;
+    _node_count = 0;
+    _partition_count = 0;
+    update_monitor();
+}
+
+//private method
+
 ResultNode* find_min_time_node(ResultNode* result_node) {
     if (result_node->get_prev()) {
         if (result_node->get_prev()->first_partition_last_time() <= result_node->first_partition_last_time()) {
@@ -89,7 +108,6 @@ ResultNode* find_min_time_node(ResultNode* result_node) {
     }
     return result_node;
 }
-
 
 /*
 * Two-dimensional array, prune the min last_read_time PartitionRowBatch.
@@ -107,26 +125,36 @@ ResultNode* find_min_time_node(ResultNode* result_node) {
 */
 void ResultCache::prune() {
     if (_cache_size > (_max_size + _elasticity_size)) {
+        LOG(INFO) << "begin prue cache, cache_size : " << _cache_size 
+            << ", max_size : " << _max_size
+            << ", elasticity_size : " << _elasticity_size;
         ResultNode* result_node = _node_list.get_head();
         while (_cache_size > _max_size) {
             if (result_node == NULL) {
                 break;
             }
-            result_node = find_min_time_node(result_node);            
+            result_node = find_min_time_node(result_node);
             _cache_size -= result_node->prune_first();
-            if (result_node->get_data_size() == 0) {              
+            if (result_node->get_data_size() == 0) { 
                 ResultNode* next_node;
                 if (result_node->get_next()) {
                     next_node = result_node->get_next();
                 } else if(result_node->get_prev()) {
                     next_node = result_node->get_prev();
-                }else{
+                } else {
                     next_node = _node_list.get_head();
                 }
                 remove(result_node);
                 result_node = next_node;
             }
         }
+        _node_count = _node_map.size();        
+        _cache_size = 0;
+        _partition_count = 0;
+        for (auto node_it = _node_map.begin(); node_it != _node_map.end(); node_it++) {
+            _partition_count += node_it->second->get_partition_count();
+            _cache_size += node_it->second->get_data_size();
+        } 
     }
 }
 
@@ -135,17 +163,14 @@ void ResultCache::remove(ResultNode* result_node){
     if (node_it != _node_map.end()) {
         _node_map.erase(node_it);
         _node_list.remove(result_node);
-        _cache_size -= result_node->get_data_size();
         _node_list.delete_node(&result_node);
     }
 }
 
-void ResultCache::clear(){
-    LOG(INFO) << "ResultCache::clear(), node size:" << _node_list.get_node_count()
-        << ", map size:" << _node_map.size();
-    _node_list.clear();
-    _node_map.clear();
-    _cache_size = 0;
+void ResultCache::update_monitor() { 
+    DorisMetrics::cache_memory_total.set_value(_cache_size);
+    DorisMetrics::cache_sql_total.set_value(_node_count);
+    DorisMetrics::cache_partition_total.set_value(_partition_count);
 }
 
 }

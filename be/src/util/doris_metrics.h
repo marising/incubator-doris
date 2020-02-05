@@ -139,6 +139,10 @@ public:
     static IntGaugeMetricsMap disks_data_used_capacity;
     static IntGaugeMetricsMap disks_state;
 
+    static IntGauge cache_memory_total;
+    static IntGauge cache_sql_total;
+    static IntGauge cache_partition_total;
+
     // The following metrics will be calculated
     // by metric calculator
     static IntGauge push_request_write_bytes_per_second;

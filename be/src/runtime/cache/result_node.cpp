@@ -26,7 +26,9 @@ bool compare_partition(const PartitionRowBatch* left_node, const PartitionRowBat
 }
 
 //return new batch size,only include the size of PRowBatch
-size_t PartitionRowBatch::set_row_batch(const int64& last_version, const long& last_version_time, const PRowBatch* prow_batch) {
+size_t PartitionRowBatch::set_row_batch(const int64& last_version, const long& last_version_time, 
+    const PRowBatch* prow_batch) {
+
 	if (prow_batch == NULL) {
         return _data_size;  
 	} 
@@ -41,7 +43,9 @@ size_t PartitionRowBatch::set_row_batch(const int64& last_version, const long& l
 	return _data_size;
 }
 
-bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& last_version, const long& last_version_time) {
+bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& last_version, 
+    const long& last_version_time) {
+
 	if (partition_key != _partition_key) return false;
     if (!_cache_stat.check_match(last_version, last_version_time)) return false;
     _cache_stat.set_read();
@@ -56,9 +60,8 @@ void PartitionRowBatch::clear() {
     _cache_stat.init();
 }
 
-PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, size_t& update_size, bool& update_first) {
+PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bool& update_first) {
     update_first = false;
-	update_size = 0;
     if (_sql_key != request->sql_key()) {
         LOG(INFO) << "no match sql_key " << request->sql_key().hi()
             << request->sql_key().lo();
@@ -76,7 +79,6 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, si
     } else {
         first_key = (*(_partition_list.begin()))->get_partition_key();
     }
-    size_t change_size = 0; 
     PartitionRowBatch* partition = NULL;
 	for (int i = 0; i < request->value_size(); i++) {
         const PUpdateCacheValue& value= request->value(i);
@@ -87,28 +89,23 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, si
         auto it = _partition_map.find(partition_key);
         if (it == _partition_map.end()) {
 	        partition = new PartitionRowBatch(partition_key); 
-            change_size = partition->set_row_batch(value.last_version(), value.last_version_time(),&value.row_batch());
-            _data_size += change_size;
-            update_size += change_size;
+            partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
             _partition_map[partition_key] = partition;
 			_partition_list.push_back(partition);
             LOG(INFO) << "add index:" << i 
                 << ", pkey:" << partition->get_partition_key() 
-                << ", chagne size" << change_size 
                 << ", list size:" << _partition_list.size() 
                 << ", map size:" << _partition_map.size();
         } else {
             partition = it->second;
-            change_size = -(partition->get_data_size() - 
-                partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch()));
-            _data_size += change_size;
-            update_size += change_size;
+            _data_size -= partition->get_data_size(); 
+            partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
             LOG(INFO) << "update index:" << i 
                 << ", pkey:" << partition->get_partition_key() 
-                << ", chagne size" << change_size 
                 << ", list size:" << _partition_list.size() 
                 << ", map size:" << _partition_map.size();
         }
+        _data_size += partition->get_data_size();
 	}
     _partition_list.sort(compare_partition);
     LOG(INFO) << "finish update batches:" << _partition_list.size();
@@ -126,7 +123,9 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, si
 * Hit cache parameter : [20191211 - 20191215], [20191212 - 20191214], [20191212 - 20191216],[20191210 - 20191215]
 * Miss cache parameter: [20191210 - 20191216]
 */
-PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& row_batch_list, bool& hit_first) {
+PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& row_batch_list, 
+    bool& hit_first) {
+
     hit_first = false;
     if (request->param_size() == 0) {
         return PCacheStatus::PARAM_ERROR;
@@ -181,8 +180,6 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
     if (begin_it == _partition_list.end() && end_it == _partition_list.end()) {
         return PCacheStatus::FETCH_SUCCESS;
     }
-
-//    LOG(INFO)<<"begin index:"<< begin_idx << ",end index:" << end_idx;
  
     //[20191210 - 20191216] hit partition range [20191212-20191214],the sql will be splited to 3 part!
     if (begin_idx != 0 && end_idx != request->param_size()-1) {
@@ -205,28 +202,27 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
 * prune first partition result
 */
 size_t ResultNode::prune_first(){
-    size_t prune_size = 0;
     if (_partition_list.size() == 0) {
-        return prune_size;
+        return 0;
     }
     PartitionRowBatch* part_node = *_partition_list.begin();
-    prune_size = part_node->get_data_size();
+    size_t prune_size = part_node->get_data_size();
     _partition_list.erase(_partition_list.begin());
     SAFE_DELETE(part_node);
-   return prune_size;
+    _data_size -= prune_size;
+    return prune_size;
 }
 
 void ResultNode::clear(){
-    LOG(WARNING) << "ResultNode::clear";
+    LOG(INFO) << "clear result node:" << _sql_key;
     _sql_key.hi = 0;
     _sql_key.lo = 0;
     for (auto it = _partition_list.begin(); it != _partition_list.end(); ) {
         (*it)->clear();
         delete *it;
         it = _partition_list.erase(it);
-        LOG(WARNING) << "ResultNode::clear2";
     }
-    LOG(WARNING) << "ResultNode::clear3";
+    _data_size = 0;
 }
 
 
@@ -283,7 +279,7 @@ void ResultNodeList::move_tail(ResultNode* node){
 }
 
 void ResultNodeList::clear() {
-    LOG(INFO) << "clear result node list";
+    LOG(INFO) << "clear result node list.";
     while (_head) {
         ResultNode* tmp_node = _head->get_next();
         _head->clear();
@@ -291,7 +287,6 @@ void ResultNodeList::clear() {
         _head = tmp_node;
     }
     _node_count = 0;
-    _data_size = 0;
 }
 
 }

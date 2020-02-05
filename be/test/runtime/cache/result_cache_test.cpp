@@ -101,7 +101,9 @@ void ResultCacheTest::init_batch_data(int sql_num, int part_begin, int part_num,
             }
         }
     }
+    LOG(WARNING) << "begin update data";
     _cache->update(_update_request, _update_response);
+    LOG(WARNING) << "finish update data";
 }
 
 TEST_F(ResultCacheTest, update_data) {
@@ -109,6 +111,8 @@ TEST_F(ResultCacheTest, update_data) {
     init_batch_data(1, 1, 1, 1);
 
     ASSERT_TRUE(_update_response->status() == PCacheStatus::UPDATE_SUCCESS);
+    
+    LOG(WARNING) << "clear cache";
 
     clear();
 }
