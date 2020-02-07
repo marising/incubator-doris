@@ -198,14 +198,14 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579024800000L); //2020-1-15 10:01:01
+        CacheModel cm = ca.checkCacheModel(1579024800000L); //2020-1-15 02:00:00
         Assert.assertEquals(cm, CacheModel.None);
     }
 
     @Test
     public void testPartitionModel() throws Exception {
         StatementBase parseStmt = parseSql(
-            "SELECT date, COUNT(userid) FROM appevent WHERE date>=2020112 and date<=2020115 GROUP BY date"
+            "SELECT date, COUNT(userid) FROM appevent WHERE date>=20200112 and date<=20200115 GROUP BY date"
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
