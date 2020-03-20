@@ -24,20 +24,26 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.proto.PUniqueId;
 
 import com.google.common.collect.ImmutableMap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Hashtable;
 import java.util.SortedMap;
 import java.util.TreeMap;
-
+import java.util.Iterator;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class CachePartition {
     private static final Logger LOG = LogManager.getLogger(CachePartition.class);
     private static final int VIRTUAL_NODES = 10;
+    private static final int REFRESH_NODE_TIME = 300000;
+    public boolean DebugModel = false;
     private Hashtable<Long, Backend> realNodes = new Hashtable<>();
     private SortedMap<Long, Backend> virtualNodes = new TreeMap<>();
+    private static Lock belock = new ReentrantLock();
+
+    private long lastRefreshTime;
     private static CachePartition cachePartition;
 
     public static CachePartition getInstance() {
@@ -57,34 +63,71 @@ public class CachePartition {
      */
     public Backend findBackend(PUniqueId sqlKey) {
         checkBackend();
-        SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.hi);
-        SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.hi);
-        int retryTimes = 0;
-        while (true) {
-            if (tailMap == null || tailMap.size() == 0) {
-                tailMap = headMap;
-                retryTimes += 1;
+        Backend virtualNode = null;
+        try {
+            belock.lock();
+            SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.hi);
+            SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.hi);
+            int retryTimes = 0;
+            while (true) {
+                if (tailMap == null || tailMap.size() == 0) {
+                    tailMap = headMap;
+                    retryTimes += 1;
+                }
+                Long key = tailMap.firstKey();
+                virtualNode = tailMap.get(key);
+                if (SimpleScheduler.isAlive(virtualNode)) {
+                    break;
+                }else{
+                    LOG.debug("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes);
+                    virtualNode = null;
+                }
+                tailMap = tailMap.tailMap(key + 1);
+                retryTimes++;
+                if (retryTimes >= 5) {
+                    LOG.warn("find backend, reach max retry times {}", retryTimes);
+                    break;
+                }
             }
-            Long key = tailMap.firstKey();
-            Backend virtualNode = tailMap.get(key);
-            if (SimpleScheduler.isAlive(virtualNode)) {
-                return virtualNode;
-            } else {
-                LOG.debug("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes); 
-            }
-            tailMap = tailMap.tailMap(key + 1);
-            retryTimes++;
-            if (retryTimes >= 5) {
-                LOG.warn("find backend, reach max retry times {}", retryTimes); 
-                return null;
-            }
+        }finally {
+            belock.unlock();
         }
+        return virtualNode;
     }
 
     public void checkBackend() {
-        ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
-        for (Backend backend : idToBackend.values().asList()) {
-            addBackend(backend);
+        if( System.currentTimeMillis() - this.lastRefreshTime <  REFRESH_NODE_TIME){
+            return;
+        }
+        try {
+            belock.lock();
+            ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+            if (!DebugModel) {
+                clearBackend(idToBackend);
+            }
+            for (Backend backend : idToBackend.values().asList()) {
+                addBackend(backend);
+            }
+            this.lastRefreshTime = System.currentTimeMillis();
+        }finally {
+            belock.unlock();
+        }
+    }
+
+    private void clearBackend(ImmutableMap<Long, Backend> idToBackend){
+        Iterator<Long> itr = realNodes.keySet().iterator();
+        Long bid;
+        while (itr.hasNext()) {
+            bid = itr.next();
+            if (!idToBackend.containsKey(bid)) {
+                for (int i = 0; i < VIRTUAL_NODES; i++) {
+                    String nodeName = String.valueOf(bid) + "::" + String.valueOf(i);
+                    PUniqueId nodeId = CacheProxy.getMd5(nodeName);
+                    virtualNodes.remove(nodeId.hi);
+                    LOG.debug("Remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.hi);
+                }
+                itr.remove();
+            }
         }
     }
 
@@ -99,9 +142,5 @@ public class CachePartition {
             virtualNodes.put(nodeId.hi, backend);
             LOG.debug("Add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
-    }
-
-    public boolean exitsBackend(Long id) {
-        return realNodes.contains(id);
     }
 }

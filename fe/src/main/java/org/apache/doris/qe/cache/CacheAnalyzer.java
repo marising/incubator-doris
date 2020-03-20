@@ -58,7 +58,7 @@ public class CacheAnalyzer {
 
     public enum CacheModel {
         None,
-        Table,
+        Sql,
         Partition
     }
     private String sqlKey;
@@ -110,21 +110,108 @@ public class CacheAnalyzer {
     public SelectStmt getRewriteStmt() {
         return rewriteStmt;
     }
-    
+
+    /**
+     * Check cache mode with SQL and table
+     * 1、Only Olap table
+     * 2、The update time of the table is before Config.last_version_interval_time
+     * 2、PartitionType is PartitionType.RANGE, and partition key has only one column
+     * 4、Partition key must be included in the group by clause
+     * 5、Where clause must contain only one partition key predicate
+     * CacheModel.Table
+     *  xxx FROM user_profile, updated before Config.last_version_interval_time
+     * CacheModel.Partition, partition by event_date, only the partition of today will be updated.
+     *  SELECT xxx FROM app_event WHERE event_date >= 20191201 AND event_date <= 20191207 GROUP BY event_date
+     *  SELECT xxx FROM app_event INNER JOIN user_Profile ON app_event.user_id = user_profile.user_id xxx
+     *  SELECT xxx FROM app_event INNER JOIN user_profile ON xxx INNER JOIN site_channel ON xxx
+     */
+    public CacheModel checkCacheModel(long now) {
+        if (!Config.enable_sql_cache && !Config.enable_partition_cache) {
+            return CacheModel.None;
+        }
+        if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
+            return CacheModel.None;
+        }
+        this.selectStmt = (SelectStmt) parsedStmt;
+        //Check the last version time of the table
+        List<Pair<Long, Integer>> tblTimeList = Lists.newArrayList();
+        for (int i = 0; i < scanNodes.size(); i++) {
+            ScanNode node = scanNodes.get(i);
+            if (!(node instanceof OlapScanNode)) {
+                return CacheModel.None;
+            }
+            OlapScanNode oNode = (OlapScanNode) node;
+            OlapTable oTable = oNode.getOlapTable();
+            long maxTime = getLastUpdateTime(oTable);
+            tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
+        }
+        Collections.sort(tblTimeList, Collections.reverseOrder());
+        if (now == 0) {
+            now = nowtime();
+        }
+        if (Config.enable_sql_cache &&
+                (now - tblTimeList.get(0).first) >= Config.last_version_interval_second * 1000) {
+            return CacheModel.Sql;
+        }
+
+        if (!Config.enable_partition_cache) {
+            return CacheModel.None;
+        }
+
+        //Check if selectStmt matches partition key
+        //Only one table can be updated in Config.last_version_interval_second range
+        for (int i = 1; i < tblTimeList.size(); i++) {
+            if ((now - tblTimeList.get(i).first) < Config.last_version_interval_second * 1000) {
+                return CacheModel.None;
+            }
+        }
+        olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
+        olapTable = olapNode.getOlapTable();
+        if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            LOG.debug("The partition of OlapTable not RANGE Type.");
+            return CacheModel.None;
+        }
+        partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
+        List<Column> columns = partitionInfo.getPartitionColumns();
+        //Partition key has only one column
+        if (columns.size() != 1) {
+            LOG.debug("Size of columns for partition key {}", columns.size());
+            return CacheModel.None;
+        }
+        partColumn = columns.get(0);
+        //Check if group expr contain partition column
+        if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
+            LOG.debug("Not group by partition key, key={}",partColumn.getName());
+            return CacheModel.None;
+        }
+        //Check if whereClause have one CompoundPredicate of partition column
+        List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
+        getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
+        if (compoundPredicates.size() != 1) {
+            LOG.debug("the predicate size include partition key has {}.", compoundPredicates.size());
+            return CacheModel.None;
+        }
+        partitionKeyPredicate = compoundPredicates.get(0);
+        return CacheModel.Partition;
+    }
+
     public CacheProxy.FetchCacheResult getCache() {
         cacheResult = null;
-        if(checkCacheModel(0) == CacheModel.None) {
+        cacheModel = checkCacheModel(0);
+        if (cacheModel == CacheModel.None) {
             return cacheResult;
         }
         CachePartition cachePart = CachePartition.getInstance();
         CacheProxy proxy = new CacheProxy();
         CacheProxy.FetchCacheRequest request;
         Status status = new Status();
-        if (cacheModel == CacheModel.Table) { 
+        if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             cacheResult = proxy.fetchCache(request, 1000, status);
-            LOG.info("fetch table cache, msg={}", status.getErrorMsg());  
-            MetricRepo.COUNTER_CACHE_TABLE.increase(1L);
+            LOG.info("fetch table cache, msg={}", status.getErrorMsg());
+            if (cacheResult != null) {
+                MetricRepo.COUNTER_CACHE_SQL.increase(1L);
+            }
         } else if (cacheModel == CacheModel.Partition) {
             rewriteSelectStmt(null);
             request = new CacheProxy.FetchCacheRequest(nokeyStmt.toSql());
@@ -147,9 +234,11 @@ public class CacheAnalyzer {
             }
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);
-            MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
-            MetricRepo.COUNTER_PARTITION_ALL.increase((long)range.getSingleList().size());
-            MetricRepo.COUNTER_PARTITION_HIT.increase((long)cacheResult.getValueList().size());
+            if (cacheResult != null) {
+                MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
+                MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getSingleList().size());
+                MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
+            }
         }
         return cacheResult;
     }
@@ -160,6 +249,11 @@ public class CacheAnalyzer {
     }
 
     public void updateCache() {
+        if( rowBatchList.size() > Config.cache_result_max_row_count ){
+            LOG.info("Can not be cached. Rowbatch size {} is more than {}", rowBatchList.size(),
+                    Config.cache_result_max_row_count);
+            return;
+        }
         MySqlRowBuffer mysqlBuffer = new MySqlRowBuffer(this.selectStmt.getResultExprs(), 
                 this.selectStmt.getColLabels(), partColumn);
         for (RowBatch row : rowBatchList) {
@@ -172,82 +266,6 @@ public class CacheAnalyzer {
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
         proxy.updateCache(updateRequest,status);
-    }
-
-    /**
-     * Check cache mode with SQL and table
-     * 1、Only Olap table
-     * 2、The update time of the table is before Config.last_version_min_delta_time minute
-     * 2、PartitionType is PartitionType.RANGE, and partition key has only one column
-     * 4、Partition key must be included in the group by clause
-     * 5、Where clause must contain only one partition key predicate
-     * CacheModel.Table
-     *  xxx FROM user_profile, updated before Config.last_version_min_delta_time minute
-     * CacheModel.Partition, partition by event_date, only the partition of today will be updated.
-     *  SELECT xxx FROM app_event WHERE event_date >= 20191201 AND event_date <= 20191207 GROUP BY event_date
-     *  SELECT xxx FROM app_event INNER JOIN user_Profile ON app_event.user_id = user_profile.user_id xxx
-     *  SELECT xxx FROM app_event INNER JOIN user_profile ON xxx INNER JOIN site_channel ON xxx
-     */
-    public CacheModel checkCacheModel(long now) {
-        //Only select statement
-        if (!(parsedStmt instanceof SelectStmt) || scanNodes.size() == 0) {
-            return CacheModel.None;
-        }
-        this.selectStmt = (SelectStmt) parsedStmt;
-        //Check the last update time of the table
-        List<Pair<Long, Integer>> tblTimeList = Lists.newArrayList();
-        for (int i = 0; i < scanNodes.size(); i++) {
-            ScanNode node = scanNodes.get(i);
-            if (!(node instanceof OlapScanNode)) {
-                return CacheModel.None;
-            }
-            OlapScanNode oNode = (OlapScanNode) node;
-            OlapTable oTable = oNode.getOlapTable();
-            long maxTime = getLastUpdateTime(oTable);
-            tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
-        }
-        Collections.sort(tblTimeList, Collections.reverseOrder());
-        if (now == 0) {
-            now = nowtime();
-        }
-        if ((now - tblTimeList.get(0).first) >= Config.last_version_min_delta_time * 60000) {
-            return CacheModel.Table;
-        }
-        //Check if selectStmt matches partition key
-        //Only one table can be updated in Config.last_version_min_delta_time range
-        for (int i = 1; i < tblTimeList.size(); i++) {
-            if ((now - tblTimeList.get(i).first) < Config.last_version_min_delta_time * 60000) {
-                return CacheModel.None;
-            }
-        }
-        olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
-        olapTable = olapNode.getOlapTable();
-        if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.debug("The partition of OlapTable not RANGE Type.");
-            return CacheModel.None;
-        }
-        partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
-        List<Column> columns = partitionInfo.getPartitionColumns();
-        //Partition key has only one column
-        if (columns.size() != 1) {
-            LOG.debug("Size of columns for partition key {}", columns.size());
-            return CacheModel.None;
-        }
-        partColumn = columns.get(0);
-        //Check if group expr contain partition column
-        if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-    	    LOG.debug("Not group by partition key, key={}",partColumn.getName());
-            return CacheModel.None;
-        }
-        //Check if whereClause have one CompoundPredicate of partition column
-        List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
-        getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
-        if (compoundPredicates.size() != 1) {
-            LOG.debug("the predicate size include partition key has {}.", compoundPredicates.size());
-            return CacheModel.None;
-        }
-        partitionKeyPredicate = compoundPredicates.get(0);
-        return CacheModel.Partition;
     }
 
     public long nowtime() {

@@ -936,20 +936,32 @@ public class Config extends ConfigBase {
     public static boolean force_do_metadata_checkpoint = false;
 
     /*
-     * If set to true, the fe will get data from be cache.
+     * If set to true, fe will enable sql result cache
+     *                              case1   case2   case3   case4
+     * enable_sql_cache             false   true    true    false
+     * enable_partition_cache       false   false   true    true
+     * last_version_interval_second xx      60      3600    3600
      */
-    @ConfField
-    public static boolean enable_inner_chache = false;
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_sql_cache = false;
 
     /*
-    *  Set the min delta time from table last version datetime to now of query, the unit is minute.
+     * If set to true, fe will get data from be cache.
      */
-    @ConfField
-    public static int last_version_min_delta_time = 120;
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_partition_cache = false;
 
     /*
-     * Set the maximum number of results for a query, default 1000
+     *  Minimum interval between last version when caching results
+     *  This parameter distinguishes between offline and real-time updates
      */
-    @ConfField static int cache_result_max_row_count = 1000;
+    @ConfField(mutable = true, masterOnly = false)
+    public static int last_version_interval_second = 3600;
+
+    /*
+     * Set the maximum number of rows that can be cached, default 1000
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_result_max_row_count = 1000;
 }
 

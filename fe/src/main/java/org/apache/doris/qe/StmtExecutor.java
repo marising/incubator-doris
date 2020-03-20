@@ -554,7 +554,7 @@ public class StmtExecutor {
         sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());        
 
         //Get rowbatch from cache
-        if (Config.enable_inner_chache) {
+        if (Config.enable_sql_cache || Config.enable_partition_cache) {
             CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
             CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
             CacheModel model = cacheAnalyzer.getCacheModel();
@@ -566,15 +566,16 @@ public class StmtExecutor {
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
-                if (model == CacheModel.Table) {
+                if (model == CacheModel.Sql) {
                     context.getState().setEof();
                     return;
-                } else if (model == CacheModel.Partition) {
+                }
+                if (model == CacheModel.Partition) {
                     SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
                     planner = new Planner();
                     planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
                 }
-            }                            
+            }
              
             coord = new Coordinator(context, analyzer, planner);
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
@@ -613,7 +614,6 @@ public class StmtExecutor {
                 }        
             }
         }
-        
         statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
     }
