@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.CacheTestDB;
 import org.apache.doris.qe.cache.PartitionRange;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -119,6 +120,9 @@ public class PartitionCacheTest {
         MetricRepo.init();
         try {
             FrontendOptions.init();
+            Config.enable_sql_cache = true;
+            Config.enable_partition_cache = true;
+            Config.last_version_interval_second = 7200;
         } catch (UnknownHostException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
@@ -157,6 +161,7 @@ public class PartitionCacheTest {
     @Test
     public void testCachePartition() throws Exception {
         CachePartition cp = CachePartition.getInstance();
+        cp.DebugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
         bd1.updateOnce(0,0,0);
         Backend bd2 = new Backend(2, "", 2000);
@@ -188,7 +193,7 @@ public class PartitionCacheTest {
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(0);
-        Assert.assertEquals(cm, CacheModel.Table);
+        Assert.assertEquals(cm, CacheModel.Sql);
     }
     
     @Test
