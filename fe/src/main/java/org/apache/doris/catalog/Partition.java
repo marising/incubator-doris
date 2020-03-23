@@ -102,7 +102,7 @@ public class Partition extends MetaObject implements Writable {
         this.baseIndex = baseIndex;
 
         this.visibleVersion = PARTITION_INIT_VERSION;
-        this.visibleVersionTime = 0;
+        this.visibleVersionTime = System.currentTimeMillis();
         this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;

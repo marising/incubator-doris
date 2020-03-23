@@ -52,7 +52,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-
 public class CacheAnalyzer {
     private static final Logger LOG = LogManager.getLogger(CacheAnalyzer.class);
 
@@ -249,7 +248,7 @@ public class CacheAnalyzer {
     }
 
     public void updateCache() {
-        if( rowBatchList.size() > Config.cache_result_max_row_count ){
+        if (rowBatchList.size() > Config.cache_result_max_row_count) {
             LOG.info("Can not be cached. Rowbatch size {} is more than {}", rowBatchList.size(),
                     Config.cache_result_max_row_count);
             return;
@@ -438,7 +437,7 @@ public class CacheAnalyzer {
         }
     }
 
-    private long getLastUpdateTime(OlapTable olapTable){
+    private long getLastUpdateTime(OlapTable olapTable) {
         long maxTime = 0;
         for(Partition partition : olapTable.getPartitions()){
             if( partition.getVisibleVersionTime() > maxTime ){

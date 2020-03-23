@@ -19,28 +19,27 @@
 #include "runtime/cache/result_node.h"
 
 namespace doris {
-	
 
 bool compare_partition(const PartitionRowBatch* left_node, const PartitionRowBatch* right_node) {
     return left_node->get_partition_key() < right_node->get_partition_key();
 }
 
 //return new batch size,only include the size of PRowBatch
-size_t PartitionRowBatch::set_row_batch(const int64& last_version, const long& last_version_time, 
+void PartitionRowBatch::set_row_batch(const int64& last_version, const long& last_version_time, 
     const PRowBatch* prow_batch) {
 
 	if (prow_batch == NULL) {
-        return _data_size;  
+        return;  
 	} 
     if (!_cache_stat.check_newer(last_version, last_version_time)) {
-        return _data_size;  
-    }           
+        return;  
+    }
+
     SAFE_DELETE(_prow_batch);
-	_prow_batch = new PRowBatch(*prow_batch);
+    _prow_batch = new PRowBatch(*prow_batch);
 	_cache_stat.set_update(last_version, last_version_time);
 	_data_size = RowBatch::get_batch_size(*_prow_batch);
     //LOG(INFO) << "finish set row batch, row num:"<< prow_batch->num_rows() << ", batch size:" << _data_size;
-	return _data_size;
 }
 
 bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& last_version, 
@@ -73,6 +72,9 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
         return PCacheStatus::PARAM_ERROR;
     }
 
+    //Only one thread per SQL key can update the cache
+    CacheWriteLock write_lock(_node_mtx);
+
     int64 first_key = kint64max; 
     if (_partition_list.size() == 0) {
         update_first = true;
@@ -85,14 +87,14 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
         int64 partition_key = value.partition_key();
         if (!update_first && partition_key <= first_key) {
             update_first = true;
-        } 
+        }
         auto it = _partition_map.find(partition_key);
         if (it == _partition_map.end()) {
 	        partition = new PartitionRowBatch(partition_key); 
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
             _partition_map[partition_key] = partition;
 			_partition_list.push_back(partition);
-            LOG(INFO) << "add index:" << i 
+            LOG(INFO) << "add index:" << i
                 << ", pkey:" << partition->get_partition_key() 
                 << ", list size:" << _partition_list.size() 
                 << ", map size:" << _partition_map.size();
@@ -100,7 +102,7 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
             partition = it->second;
             _data_size -= partition->get_data_size(); 
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
-            LOG(INFO) << "update index:" << i 
+            LOG(INFO) << "update index:" << i
                 << ", pkey:" << partition->get_partition_key() 
                 << ", list size:" << _partition_list.size() 
                 << ", map size:" << _partition_map.size();
@@ -111,7 +113,9 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
     LOG(INFO) << "finish update batches:" << _partition_list.size();
     while (config::cache_max_partition_count > 0 && 
         _partition_list.size() > config::cache_max_partition_count) {
-       prune_first(); 
+       if (prune_first() == 0) {
+           break;
+       }
     }
     return PCacheStatus::UPDATE_SUCCESS;
 }
@@ -133,6 +137,8 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
     if (_partition_list.size() == 0) {
         return PCacheStatus::NO_PARTITION_KEY;
     }
+
+    CacheReadLock read_lock(_node_mtx);
     
     bool find = false;
     int begin_idx = -1, end_idx = -1, param_idx = 0; 
@@ -190,7 +196,7 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
     }
     while (true) {
         row_batch_list.push_back(*begin_it);
-        if (begin_it == end_it){ 
+        if (begin_it == end_it) { 
             break;
         }
         begin_it++;
@@ -201,7 +207,7 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
 /*
 * prune first partition result
 */
-size_t ResultNode::prune_first(){
+size_t ResultNode::prune_first() {
     if (_partition_list.size() == 0) {
         return 0;
     }
@@ -213,7 +219,8 @@ size_t ResultNode::prune_first(){
     return prune_size;
 }
 
-void ResultNode::clear(){
+void ResultNode::clear() {
+    CacheWriteLock write_lock(_node_mtx);
     LOG(INFO) << "clear result node:" << _sql_key;
     _sql_key.hi = 0;
     _sql_key.lo = 0;
@@ -224,7 +231,6 @@ void ResultNode::clear(){
     }
     _data_size = 0;
 }
-
 
 void ResultNode::append(ResultNode* tail){
     _prev = tail;
@@ -240,53 +246,6 @@ void ResultNode::unlink() {
 	}
 	_next = NULL;
 	_prev = NULL;
-}
-
-/*
-* Remove the tail node of link
-*/
-ResultNode* ResultNodeList::pop() {
-    remove(_head);
-    return _head;
-}
-
-void ResultNodeList::remove(ResultNode* node) {
-    if (!node) return;
-    node->unlink();
-    if (node == _head) _head = node->get_next();   
-    if (node == _tail) _tail = node->get_prev();
-    _node_count--;
-}
-
-void ResultNodeList::push(ResultNode* node) {
-    if(!node) return;        
-    if (!_head) _head = node;
-    node->append(_tail);
-    _tail = node;
-    _node_count++;		
-}
-
-void ResultNodeList::move_tail(ResultNode* node){
-    if (!node) return;
-    if (node == _tail) return; 
-    if (!_head)  
-        _head = node;
-    else if (node == _head) 
-        _head = node->get_next();
-    node->unlink();
-    node->append(_tail);
-    _tail = node;
-}
-
-void ResultNodeList::clear() {
-    LOG(INFO) << "clear result node list.";
-    while (_head) {
-        ResultNode* tmp_node = _head->get_next();
-        _head->clear();
-        SAFE_DELETE(_head);
-        _head = tmp_node;
-    }
-    _node_count = 0;
 }
 
 }

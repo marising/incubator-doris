@@ -39,6 +39,48 @@
 
 namespace doris {
 
+typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
+
+// a doubly linked list class
+class ResultNodeList {
+public:	
+	ResultNodeList() : _head(NULL), _tail(NULL), _node_count(0) {
+	}
+	virtual ~ResultNodeList() {
+	}	
+	
+    ResultNode* new_node(const UniqueId& sql_key) {
+		return new ResultNode(sql_key);
+	}	
+
+	void delete_node(ResultNode** node) {
+		SAFE_DELETE(*node);
+	}
+    
+	ResultNode* pop();
+	void move_tail(ResultNode* node);
+	//Just remove node from link, do not delete node
+	void remove(ResultNode* node);
+	void push(ResultNode* node);
+	void clear();
+
+	ResultNode* get_head() const {
+		return _head;
+	}
+
+	ResultNode* get_tail() const {
+		return _tail;
+	}
+
+    size_t get_node_count() const {
+        return _node_count;
+    }
+private:
+	ResultNode* _head;
+	ResultNode* _tail;
+	size_t _node_count;
+};
+
 class ResultCache {
 public:	
 	ResultCache(int32 max_size, int32 elasticity_size) {
@@ -73,7 +115,7 @@ private:
     //List of result nodes corresponding to SqlKey,last recently useed at the tail
 	ResultNodeList _node_list;	
 	size_t _cache_size;
-	size_t _max_size;
+	size_t _max_size; 
 	double _elasticity_size;
     size_t _node_count;
 	size_t _partition_count;

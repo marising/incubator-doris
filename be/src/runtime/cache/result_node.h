@@ -58,7 +58,7 @@ public:
 	~PartitionRowBatch() {
 	}
 	
-	size_t set_row_batch(const int64& last_version, const long& last_version_time, const PRowBatch* prow_batch);
+	void set_row_batch(const int64& last_version, const long& last_version_time, const PRowBatch* prow_batch);
 	bool is_hit_cache(const int64& partition_key, const int64& last_version, const long& last_version_time);
 	void clear();
 
@@ -74,10 +74,9 @@ public:
 		return _data_size;
 	}
 
-	const PartitionStat* get_stat() const{
+	const PartitionStat* get_stat() const {
 		return &_cache_stat;
 	}
-
 private:
 	int64 _partition_key;
 	PRowBatch* _prow_batch;
@@ -89,7 +88,7 @@ typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
 typedef boost::unordered_map<int64, PartitionRowBatch*> PartitionRowBatchMap;	
 
 /*
-* Cache the result of one select statment
+* Cache the result of one SQL,include many partition rowsets
 */
 class ResultNode {
 public:
@@ -102,13 +101,14 @@ public:
 	virtual ~ResultNode() {
 	}
 
-	void init() {
-		clear();
-	}
+	// void init() {
+	// 	clear();
+	// }
 
 	PCacheStatus update_partition(const PUpdateCacheRequest* request, bool& update_first);
 	PCacheStatus get_partition(const PFetchCacheRequest* request, PartitionRowBatchList& rowBatchList, 
         bool& hit_first);
+
 	size_t prune_first();
 	void clear();
 
@@ -188,6 +188,7 @@ public:
 	}
 
 private:
+	mutable boost::shared_mutex _node_mtx;
 	UniqueId _sql_key;
 	ResultNode* _prev;
 	ResultNode* _next;
@@ -196,48 +197,5 @@ private:
 	PartitionRowBatchMap _partition_map;    
 };
 
-typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
-
-// a doubly linked list class
-class ResultNodeList {
-public:	
-	ResultNodeList() : _head(NULL), _tail(NULL), _node_count(0) {
-	}
-	virtual ~ResultNodeList() {
-	}	
-	
-    ResultNode* new_node(const UniqueId& sql_key) {
-		return new ResultNode(sql_key);
-	}	
-
-	void delete_node(ResultNode** node) {
-		SAFE_DELETE(*node);
-	}       
-    
-	ResultNode* pop();
-	void move_tail(ResultNode* node);
-	//Just remove node from link, do not delete node
-	void remove(ResultNode* node);
-	void push(ResultNode* node);
-	void clear();
-
-	ResultNode* get_head() const{
-		return _head;
-	}
-
-	ResultNode* get_tail() const {
-		return _tail;
-	}
-
-    size_t get_node_count() const {
-        return _node_count;
-    }
-private:
-	ResultNode* _head;
-	ResultNode* _tail;
-	size_t _node_count;
-};
-
 }
-
-#endif //DORIS_BE_SRC_RUNTIME_CACHE_ROW_H
+#endif

@@ -217,22 +217,18 @@ TEST_F(ResultCacheTest, fetch_data_overdue) {
     clear();
 }
 
-/*
 TEST_F(ResultCacheTest, prune_data) {
     init(2,1);
     init_batch_data(4, 128, 256); // (12+16+4)*256*128*4 = 4M
     ASSERT_LT(_cache->get_cache_size(), 3*1024*1024); //cache_size must less 3M
 }
-*/
 
-/*
 TEST_F(ResultCacheTest, cache_clear) {
     init_default();
     init_batch_data(1, 1, 1, 1);
     _cache->clear();
     ASSERT_EQ(_cache->get_cache_size(),0); 
 }
-*/
 
 }
 

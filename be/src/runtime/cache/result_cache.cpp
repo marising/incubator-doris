@@ -21,11 +21,57 @@
 
 namespace doris {
 
+/*
+* Remove the tail node of link
+*/
+ResultNode* ResultNodeList::pop() {
+    remove(_head);
+    return _head;
+}
+
+void ResultNodeList::remove(ResultNode* node) {
+    if (!node) return;
+    node->unlink();
+    if (node == _head) _head = node->get_next();   
+    if (node == _tail) _tail = node->get_prev();
+    _node_count--;
+}
+
+void ResultNodeList::push(ResultNode* node) {
+    if(!node) return;        
+    if (!_head) _head = node;
+    node->append(_tail);
+    _tail = node;
+    _node_count++;		
+}
+
+void ResultNodeList::move_tail(ResultNode* node){
+    if (!node) return;
+    if (node == _tail) return; 
+    if (!_head)  
+        _head = node;
+    else if (node == _head) 
+        _head = node->get_next();
+    node->unlink();
+    node->append(_tail);
+    _tail = node;
+}
+
+void ResultNodeList::clear() {
+    LOG(INFO) << "clear result node list.";
+    while (_head) {
+        ResultNode* tmp_node = _head->get_next();
+        _head->clear();
+        SAFE_DELETE(_head);
+        _head = tmp_node;
+    }
+    _node_count = 0;
+}
+
 void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult* response) { 
     ResultNode* node;
     PCacheStatus status;
     bool update_first = false;
-    boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
     LOG(INFO) << "begin update cache, sql key:" << sql_key;
     auto it = _node_map.find(sql_key);
@@ -47,12 +93,14 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
     _cache_size += node->get_data_size();
     _partition_count += node->get_partition_count();
     response->set_status(status);
+    
+    CacheWriteLock write_lock(_cache_mtx);
     prune();
     update_monitor();
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
-    boost::shared_lock<boost::shared_mutex> read_lock(_cache_mtx);
+    CacheReadLock read_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
     auto it = _node_map.find(sql_key);
     if (it == _node_map.end()) {
@@ -81,7 +129,7 @@ bool ResultCache::contains(const UniqueId& sql_key) {
 }
 
 void ResultCache::clear(){
-    boost::unique_lock<boost::shared_mutex> write_lock(_cache_mtx);
+    CacheWriteLock write_lock(_cache_mtx);
     LOG(INFO) << "clear() cache, node size:" << _node_list.get_node_count()
         << ", map size:" << _node_map.size();
     _node_list.clear();
@@ -93,7 +141,6 @@ void ResultCache::clear(){
 }
 
 //private method
-
 ResultNode* find_min_time_node(ResultNode* result_node) {
     if (result_node->get_prev()) {
         if (result_node->get_prev()->first_partition_last_time() <= result_node->first_partition_last_time()) {

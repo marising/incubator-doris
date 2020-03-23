@@ -28,8 +28,13 @@
 #include <algorithm>
 #include <sys/time.h>
 #include <gutil/integral_types.h>
+#include <shared_mutex>
+#include <boost/thread.hpp>
 
 namespace doris {
+
+typedef boost::shared_lock<boost::shared_mutex> CacheReadLock;
+typedef boost::unique_lock<boost::shared_mutex> CacheWriteLock;
 
 struct SqlStat {
 	static const uint32 DAY_SECONDS = 86400;
@@ -107,5 +112,4 @@ struct PartitionStat : SqlStat {
 };
 
 }
-
 #endif //DORIS_BE_SRC_RUNTIME_CACHE_UTILS_H
