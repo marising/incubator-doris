@@ -559,7 +559,7 @@ public class StmtExecutor {
             CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
             CacheModel model = cacheAnalyzer.getCacheModel();
             if (cacheResult != null) {
-                for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
+		        for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);

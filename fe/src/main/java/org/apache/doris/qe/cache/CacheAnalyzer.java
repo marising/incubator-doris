@@ -60,6 +60,7 @@ public class CacheAnalyzer {
         Sql,
         Partition
     }
+    private long stmtId;
     private String sqlKey;
     private CacheModel cacheModel;
     private CacheProxy.FetchCacheResult cacheResult;
@@ -83,6 +84,7 @@ public class CacheAnalyzer {
         parsedStmt = executor.getParsedStmt();
         scanNodes = planner.getScanNodes();
         cacheResult = null;
+        stmtId = context.getStmtId();
     }
 
     public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes) {
@@ -239,6 +241,12 @@ public class CacheAnalyzer {
                 MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
             }
         }
+
+        if( cacheResult != null){
+            LOG.info("Hit cache model{}, stmtid{}",cacheModel, stmtId);	 
+        } else {
+            LOG.info("Miss cache model{}, stmtid{}", cacheModel, stmtId);	 
+        }
         return cacheResult;
     }
 
@@ -265,6 +273,7 @@ public class CacheAnalyzer {
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
         proxy.updateCache(updateRequest,status);
+        LOG.info("Update cache model{}, stmtid{}, ", cacheModel, stmtId);	 
     }
 
     public long nowtime() {

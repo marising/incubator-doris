@@ -171,38 +171,40 @@ ResultNode* find_min_time_node(ResultNode* result_node) {
 *   5,7,9,11,13 //_tail
 */
 void ResultCache::prune() {
-    if (_cache_size > (_max_size + _elasticity_size)) {
-        LOG(INFO) << "begin prue cache, cache_size : " << _cache_size 
-            << ", max_size : " << _max_size
-            << ", elasticity_size : " << _elasticity_size;
-        ResultNode* result_node = _node_list.get_head();
-        while (_cache_size > _max_size) {
-            if (result_node == NULL) {
-                break;
-            }
-            result_node = find_min_time_node(result_node);
-            _cache_size -= result_node->prune_first();
-            if (result_node->get_data_size() == 0) { 
-                ResultNode* next_node;
-                if (result_node->get_next()) {
-                    next_node = result_node->get_next();
-                } else if(result_node->get_prev()) {
-                    next_node = result_node->get_prev();
-                } else {
-                    next_node = _node_list.get_head();
-                }
-                remove(result_node);
-                result_node = next_node;
-            }
-        }
-        _node_count = _node_map.size();        
-        _cache_size = 0;
-        _partition_count = 0;
-        for (auto node_it = _node_map.begin(); node_it != _node_map.end(); node_it++) {
-            _partition_count += node_it->second->get_partition_count();
-            _cache_size += node_it->second->get_data_size();
-        } 
+    if (_cache_size <= (_max_size + _elasticity_size)) {
+        return;
     }
+    LOG(INFO) << "begin prune cache, cache_size : " << _cache_size 
+        << ", max_size : " << _max_size
+        << ", elasticity_size : " << _elasticity_size;
+    ResultNode* result_node = _node_list.get_head();
+    while (_cache_size > _max_size) {
+        if (result_node == NULL) {
+            break;
+        }
+        result_node = find_min_time_node(result_node);
+        _cache_size -= result_node->prune_first();
+        if (result_node->get_data_size() == 0) { 
+            ResultNode* next_node;
+            if (result_node->get_next()) {
+                next_node = result_node->get_next();
+            } else if(result_node->get_prev()) {
+                next_node = result_node->get_prev();
+            } else {
+                next_node = _node_list.get_head();
+            }
+            remove(result_node);
+            result_node = next_node;
+        }
+    }
+    LOG(INFO) << "finish prune, cache_size : " << _cache_size; 
+    _node_count = _node_map.size();        
+    _cache_size = 0;
+    _partition_count = 0;
+    for (auto node_it = _node_map.begin(); node_it != _node_map.end(); node_it++) {
+        _partition_count += node_it->second->get_partition_count();
+        _cache_size += node_it->second->get_data_size();
+    } 
 }
 
 void ResultCache::remove(ResultNode* result_node){

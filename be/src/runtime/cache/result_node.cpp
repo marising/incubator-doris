@@ -94,18 +94,18 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
             _partition_map[partition_key] = partition;
 			_partition_list.push_back(partition);
-            LOG(INFO) << "add index:" << i
-                << ", pkey:" << partition->get_partition_key() 
-                << ", list size:" << _partition_list.size() 
-                << ", map size:" << _partition_map.size();
+//            LOG(INFO) << "add index:" << i
+//                << ", pkey:" << partition->get_partition_key() 
+//                << ", list size:" << _partition_list.size() 
+//                << ", map size:" << _partition_map.size();
         } else {
             partition = it->second;
             _data_size -= partition->get_data_size(); 
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
-            LOG(INFO) << "update index:" << i
-                << ", pkey:" << partition->get_partition_key() 
-                << ", list size:" << _partition_list.size() 
-                << ", map size:" << _partition_map.size();
+//            LOG(INFO) << "update index:" << i
+//                << ", pkey:" << partition->get_partition_key() 
+//                << ", list size:" << _partition_list.size() 
+//                << ", map size:" << _partition_map.size();
         }
         _data_size += partition->get_data_size();
 	}

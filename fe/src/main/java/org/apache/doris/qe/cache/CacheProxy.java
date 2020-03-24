@@ -42,10 +42,10 @@ import org.apache.doris.proto.PUniqueId;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.collect.Lists;
 import java.security.MessageDigest;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.List;
@@ -145,6 +145,7 @@ public class CacheProxy {
         public FetchCacheRequest(String sqlStr) {
             this.sqlStr = sqlStr;
             this.sqlKey = getMd5(this.sqlStr);
+            paramList = Lists.newArrayList();
         }
 
         public String getSqlStr() {
