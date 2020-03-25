@@ -179,6 +179,9 @@ public class CacheProxy {
 
         public void addParam(long partitionKey, long lastVersion, long lastVersionTime) {
             FetchCacheParam param = new FetchCacheParam(partitionKey, lastVersion, lastVersionTime);
+            if( paramList == null) {
+                paramList = Lists.newArrayList();
+            }
             paramList.add(param);
         }
 
