@@ -46,7 +46,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CachePartition;
 import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.qe.cache.PartitionRange;
-import org.apache.doris.qe.cache.MySqlRowBuffer;
+import org.apache.doris.qe.cache.RowBatchBuilder;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
