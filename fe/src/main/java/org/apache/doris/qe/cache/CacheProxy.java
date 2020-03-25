@@ -252,6 +252,9 @@ public class CacheProxy {
     public FetchCacheResult fetchCache(FetchCacheRequest request,int timeoutMs, Status status) {
         PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
+        if( backend == null){
+            return null;
+        }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
         FetchCacheResult result = new FetchCacheResult();
@@ -277,16 +280,16 @@ public class CacheProxy {
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId());
         } catch (InterruptedException e) {
-            LOG.warn("future get interrupted Exception, sqlKey={}", sqlKey, e);
+            LOG.warn("future get interrupted exception, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
             status.setStatus("interrupted exception");
         } catch (ExecutionException e) {
-            LOG.warn("future get execution exception, sqlKey={}", sqlKey, e);
+            LOG.warn("future get execution exception, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
             status.setStatus("execution exception");
         } catch (TException e) {
-            LOG.warn("fetch result deserialize error, sqlKey={}", sqlKey, e);            
+            LOG.warn("fetch result deserialize error, sqlKey={}, backend={}", sqlKey, backend.getId(), e);            
             status.setStatus("deserialize error");
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, sqlKey={}", sqlKey, e);
+            LOG.warn("fetch result timeout, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
             status.setStatus("query timeout");
         } finally {
         }

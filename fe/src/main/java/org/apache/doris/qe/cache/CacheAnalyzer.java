@@ -208,8 +208,8 @@ public class CacheAnalyzer {
         Status status = new Status();
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
-            cacheResult = proxy.fetchCache(request, 1000, status);
-            LOG.info("fetch table cache, msg={}", status.getErrorMsg());
+            cacheResult = proxy.fetchCache(request, 10000, status);
+            LOG.info("fetch sql cache, msg={}", status.getErrorMsg());
             if (cacheResult != null) {
                 MetricRepo.COUNTER_CACHE_SQL.increase(1L);
             }

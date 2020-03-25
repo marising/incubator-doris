@@ -73,7 +73,7 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
     PCacheStatus status;
     bool update_first = false;
     UniqueId sql_key = request->sql_key();
-    LOG(INFO) << "begin update cache, sql key:" << sql_key;
+    LOG(INFO) << "update cache, sql key:" << sql_key;
     auto it = _node_map.find(sql_key);
     if (it != _node_map.end()) {
         node = it->second;
@@ -100,6 +100,7 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
+    LOG(INFO) << "fetch cache, sql key:" << request->sql_key();;
     CacheReadLock read_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
     auto it = _node_map.find(sql_key);
@@ -129,9 +130,9 @@ bool ResultCache::contains(const UniqueId& sql_key) {
 }
 
 void ResultCache::clear(){
-    CacheWriteLock write_lock(_cache_mtx);
-    LOG(INFO) << "clear() cache, node size:" << _node_list.get_node_count()
+    LOG(INFO) << "clear cache, node size:" << _node_list.get_node_count()
         << ", map size:" << _node_map.size();
+    CacheWriteLock write_lock(_cache_mtx);
     _node_list.clear();
     _node_map.clear();
     _cache_size = 0;
