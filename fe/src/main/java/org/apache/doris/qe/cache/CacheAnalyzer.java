@@ -85,6 +85,7 @@ public class CacheAnalyzer {
         scanNodes = planner.getScanNodes();
         cacheResult = null;
         stmtId = context.getStmtId();
+        rowBatchList = Lists.newArrayList();
     }
 
     public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes) {
@@ -243,9 +244,9 @@ public class CacheAnalyzer {
         }
 
         if( cacheResult != null){
-            LOG.info("Hit cache model{}, stmtid{}",cacheModel, stmtId);	 
+            LOG.info("Hit cache model:{}, stmtid:{}",cacheModel, stmtId);	 
         } else {
-            LOG.info("Miss cache model{}, stmtid{}", cacheModel, stmtId);	 
+            LOG.info("Miss cache model:{}, stmtid:{}", cacheModel, stmtId);	 
         }
         return cacheResult;
     }

@@ -235,7 +235,7 @@ public class CacheProxy {
             LOG.warn("update cache can't find backend, sqlKey={}", sqlKey);
             return;
         }
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try{
             PUpdateCacheRequest rpcReq = new PUpdateCacheRequest();
             request.getRpcRequest(rpcReq);
@@ -255,7 +255,7 @@ public class CacheProxy {
         if( backend == null){
             return null;
         }
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
         FetchCacheResult result = new FetchCacheResult();
         try {
@@ -311,7 +311,7 @@ public class CacheProxy {
     }
 
     private boolean clearCache(UpdateCacheRequest request, Backend backend) {
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try{
             PUpdateCacheRequest rpcReq = new PUpdateCacheRequest();
             LOG.info("clear all backend cache, backendId={}", backend.getId());
