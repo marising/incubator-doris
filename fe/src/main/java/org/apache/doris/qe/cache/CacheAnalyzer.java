@@ -63,6 +63,7 @@ public class CacheAnalyzer {
     private long stmtId;
     private String sqlKey;
     private CacheModel cacheModel;
+    private long lastestTime;
     private CacheProxy.FetchCacheResult cacheResult;
     private StatementBase parsedStmt;
     //normal sql
@@ -78,14 +79,15 @@ public class CacheAnalyzer {
     private Column partColumn;
     private CompoundPredicate partitionKeyPredicate;
     private PartitionRange range;
-    private List<RowBatch> rowBatchList;
+    private RowBatchBuilder rowBatchBuilder;
+    List<PartitionRange.PartitionSingle> newRangeList;
 
     public CacheAnalyzer(ConnectContext context, StmtExecutor executor, Analyzer analyzer, Planner planner) {
         parsedStmt = executor.getParsedStmt();
         scanNodes = planner.getScanNodes();
         cacheResult = null;
         stmtId = context.getStmtId();
-        rowBatchList = Lists.newArrayList();
+        lastestTime = 0;
     }
 
     public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes) {
@@ -148,11 +150,12 @@ public class CacheAnalyzer {
             tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
         }
         Collections.sort(tblTimeList, Collections.reverseOrder());
+        lastestTime = tblTimeList.get(0).first;
         if (now == 0) {
             now = nowtime();
         }
         if (Config.enable_sql_cache &&
-                (now - tblTimeList.get(0).first) >= Config.last_version_interval_second * 1000) {
+                (now - lastestTime) >= Config.last_version_interval_second * 1000) {
             return CacheModel.Sql;
         }
 
@@ -209,6 +212,7 @@ public class CacheAnalyzer {
         Status status = new Status();
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
+            request.addParam(0, 0, lastestTime);
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch sql cache, msg={}", status.getErrorMsg());
             if (cacheResult != null) {
@@ -234,7 +238,7 @@ public class CacheAnalyzer {
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
                 range.setCacheFlag(value.getPartitionKey());
             }
-            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+            newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);
             if (cacheResult != null) {
                 MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
@@ -251,30 +255,36 @@ public class CacheAnalyzer {
         return cacheResult;
     }
 
+
+
     //Append rowBatch to list,then updateCache
     public void appendRowBatch(RowBatch rowBatch) {
-        rowBatchList.add(rowBatch);
+        if (rowBatchBuilder == null) {
+            rowBatchBuilder = new RowBatchBuilder(cacheModel);
+            rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
+                    partColumn, newRangeList);
+        }
+        rowBatchBuilder.appendRowBatch(rowBatch);
     }
 
     public void updateCache() {
-        if (rowBatchList.size() > Config.cache_result_max_row_count) {
-            LOG.info("Can not be cached. Rowbatch size {} is more than {}", rowBatchList.size(),
+        if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
+            LOG.info("Can not be cached. Rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
                     Config.cache_result_max_row_count);
             return;
         }
-        MySqlRowBuffer mysqlBuffer = new MySqlRowBuffer(this.selectStmt.getResultExprs(), 
-                this.selectStmt.getColLabels(), partColumn);
-        for (RowBatch row : rowBatchList) {
-            mysqlBuffer.appendRowBatch(row);
+
+        if( cacheModel == CacheModel.Sql) {
+            rowBatchBuilder.buildUpdateRequest(parsedStmt.toSql());
+        }else if( cacheModel == CacheModel.Partition){
+            rowBatchBuilder.buildUpdateRequest(nokeyStmt.toSql());
         }
-        CacheProxy.UpdateCacheRequest updateRequest = mysqlBuffer.getUpdateRequest();
-        for (CacheProxy.UpdateCacheValue value : updateRequest.getValueList()) {
-            long partKey = value.getPartitionKey();
-        }
+
+        CacheProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.getUpdateRequest();
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
         proxy.updateCache(updateRequest,status);
-        LOG.info("Update cache model{}, stmtid{}, ", cacheModel, stmtId);	 
+        LOG.info("Update cache model{}, stmtid:{}, ", cacheModel, stmtId);
     }
 
     public long nowtime() {

@@ -43,6 +43,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.Lists;
+import org.apache.thrift.TSerializer;
+
 import java.security.MessageDigest;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -54,16 +56,27 @@ public class CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheProxy.class);
 
     public static class UpdateCacheValue extends FetchCacheParam {
-        private RowBatch rowBatch;
-        public UpdateCacheValue(long partitionKey, long lastVersion, long lastVersionTime, RowBatch rowBatch) {
+        private TResultBatch resultBatch;
+        public UpdateCacheValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
             super(partitionKey, lastVersion, lastVersionTime);
-            this.rowBatch = rowBatch;
+            this.resultBatch = resultBatch;
         }
         public void getRpcValue(PUpdateCacheRequest rpcRequest) {
             PUpdateCacheValue value = new PUpdateCacheValue();
+            TSerializer serializer = new TSerializer();
+
             value.partition_key = this.partitionKey;
             value.last_version = this.lastVersion;
             value.last_version_time = this.lastVersionTime;
+            byte[] buffer = null;
+            try {
+                buffer = serializer.serialize(resultBatch);
+            }catch (TException e){
+                return;
+            }
+            value.row_batch.is_compressed = false;
+            value.row_batch.num_rows = resultBatch.getRows().size();
+            value.row_batch.tuple_data = buffer;
             rpcRequest.value.add(value);
         }
     }
@@ -94,8 +107,8 @@ public class CacheProxy {
             return valueList;
         }
 
-        public void addValue(long partitionKey, long lastVersion, long lastVersionTime, RowBatch rowBatch) {
-            UpdateCacheValue value = new UpdateCacheValue(partitionKey, lastVersion, lastVersionTime, rowBatch);
+        public void addValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
+            UpdateCacheValue value = new UpdateCacheValue(partitionKey, lastVersion, lastVersionTime, resultBatch);
             valueList.add(value);
         }
 
@@ -194,7 +207,7 @@ public class CacheProxy {
         public void setRowBatch(RowBatch rowBatch) {
             this.rowBatch = rowBatch;
         }
-        public void serialize(byte[] buffer, boolean eos) throws TException {
+        public void deserialize(byte[] buffer, boolean eos) throws TException {
             TResultBatch resultBatch = new TResultBatch();
             TDeserializer deserializer = new TDeserializer();
             deserializer.deserialize(resultBatch, buffer);
@@ -212,16 +225,16 @@ public class CacheProxy {
         public void setValueList(List<FetchCacheValue> valueList) {
             this.valueList = valueList;
         }
-
+        //PRowBatch.tuple_data is the byte[] of TResultBatch serialize
         public void setResult(PFetchCacheResult rpcResult) throws TException {
             for (int i = 0; i < rpcResult.value.size(); i++) {
                 PFetchCacheValue rpcValue = rpcResult.value.get(i);
                 FetchCacheValue value = new FetchCacheValue();
                 value.setPartitionKey(rpcValue.partition_key);
                 if (i == rpcResult.value.size()-1) {
-                    value.serialize(rpcValue.row_batch.tuple_data,true);
+                    value.deserialize(rpcValue.row_batch.tuple_data,true);
                 } else {
-                    value.serialize(rpcValue.row_batch.tuple_data,false);
+                    value.deserialize(rpcValue.row_batch.tuple_data,false);
                 }
                 valueList.add(value);
             }
