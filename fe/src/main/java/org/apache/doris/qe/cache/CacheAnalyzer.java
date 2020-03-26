@@ -286,7 +286,7 @@ public class CacheAnalyzer {
         Status status = new Status();
         updateRequest.Debug();
         proxy.updateCache(updateRequest,status);
-        LOG.info("update cache model{}, stmtid:{}, ", cacheModel, stmtId);
+        LOG.info("update cache model:{}, stmtid:{}, ", cacheModel, stmtId);
     }
 
     public long nowtime() {

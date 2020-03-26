@@ -90,6 +90,7 @@ public class CacheProxy {
         public UpdateCacheRequest(String sqlStr) {
             this.sqlStr = sqlStr;
             this.sqlKey = getMd5(this.sqlStr);
+            this.valueList = Lists.newArrayList();
         }
 
         public String getSqlStr() {
@@ -156,6 +157,9 @@ public class CacheProxy {
             param.partition_key = this.partitionKey;
             param.last_version = this.lastVersion;
             param.last_version_time = this.lastVersionTime;
+            if (rpcRequest.param == null){
+                rpcRequest.param = Lists.newArrayList();
+            }
             rpcRequest.param.add(param);
         }
     }
@@ -240,6 +244,10 @@ public class CacheProxy {
 
     public static class FetchCacheResult {
         private List<FetchCacheValue> valueList;
+        
+        public FetchCacheResult() {
+            valueList = Lists.newArrayList();
+        }
 
         public List<FetchCacheValue> getValueList() {
             return valueList;
