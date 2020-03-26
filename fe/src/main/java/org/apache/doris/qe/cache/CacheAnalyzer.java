@@ -277,9 +277,9 @@ public class CacheAnalyzer {
         }
 
         if( cacheModel == CacheModel.Sql) {
-            rowBatchBuilder.buildUpdateRequest(parsedStmt.toSql());
+            rowBatchBuilder.buildSqlUpdateRequest(parsedStmt.toSql(), lastestTime);
         }else if( cacheModel == CacheModel.Partition){
-            rowBatchBuilder.buildUpdateRequest(nokeyStmt.toSql());
+            rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
         }
         CacheProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.getUpdateRequest();
         CacheProxy proxy = new CacheProxy();

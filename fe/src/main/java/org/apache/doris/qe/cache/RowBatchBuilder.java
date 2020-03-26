@@ -21,6 +21,7 @@ import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.RowBatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,9 +68,12 @@ public class RowBatchBuilder {
             }
             begin += size;
         }
-        for(PartitionRange.PartitionSingle single : partitionSingleList) {
+        for (PartitionRange.PartitionSingle single : partitionSingleList) {
+            single.Debug();
             partMap.put(single.getPartitionKey(), single);
         }
+        LOG.info("part name:{}, type:{}, result index:{}, range size:{} ", partColumn.getName(), keyType,
+                begin, partMap.size());
     }
 
     public void appendRowBatch(RowBatch rowBatch) {
@@ -77,10 +81,27 @@ public class RowBatchBuilder {
         rowBatchList.add(rowBatch);
     }
 
+    public void buildSqlUpdateRequest(String sql, long lastestTime) {
+        if (updateRequest == null) {
+            updateRequest = new CacheProxy.UpdateCacheRequest(sql);
+        }
+        int packet_num = 0;
+        for (RowBatch batch : rowBatchList) {
+            TResultBatch result = new TResultBatch();
+            result.setRows(batch.getBatch().getRows());
+            result.setPacket_seq(packet_num);
+            result.setIs_compressed(false);
+            updateRequest.addValue(0, 0, lastestTime, result);
+        }
+        LOG.info("build update request, sql_key:{}, batch size:{}, packet num:{}",
+                DebugUtil.printId(updateRequest.getSqlKey()),
+                rowBatchList.size(), packet_num);
+    }
+
     /**
      * Rowbatch split to TResultData
      */
-    public void buildUpdateRequest(String sql) {
+    public void buildPartitionUpdateRequest(String sql) {
         if (updateRequest == null) {
             updateRequest = new CacheProxy.UpdateCacheRequest(sql);
         }
@@ -109,7 +130,8 @@ public class RowBatchBuilder {
         for (HashMap.Entry<Long, List<ByteBuffer>> entry : partRowMap.entrySet()) {
             Long key = entry.getKey();
             PartitionRange.PartitionSingle partition = partMap.get(key);
-            if( partition == null) {
+            if (partition == null) {
+                LOG.warn("cant find partition");
                 continue;
             }
             List<ByteBuffer> buffer = entry.getValue();
@@ -117,10 +139,13 @@ public class RowBatchBuilder {
             result.setRows(buffer);
             result.setPacket_seq(packet_num);
             result.setIs_compressed(false);
-
             updateRequest.addValue(key, partition.getPartition().getVisibleVersion(),
                     partition.getPartition().getVisibleVersionTime(), result);
+            packet_num++;
         }
+        LOG.info("build update request, sql_key:{}, batch size:{}, packet num:{}",
+                DebugUtil.printId(updateRequest.getSqlKey()),
+                rowBatchList.size(), packet_num);
     }
 
     public CacheProxy.UpdateCacheRequest getUpdateRequest() {

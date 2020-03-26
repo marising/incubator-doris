@@ -89,6 +89,10 @@ public class PartitionRange {
             this.partitionKey = 0;
             this.fromCache = false;
         }
+        public void Debug() {
+            LOG.info("partition id:{}, key:{}, version:{}, time:{} ", partitionId, partitionKey,
+                    partition.getVisibleVersion(), partition.getVisibleVersionTime());
+        }
     }
     private CompoundPredicate partitionKeyPredicate;
     private OlapTable olapTable;
