@@ -124,7 +124,7 @@ public class CachePartition {
                     String nodeName = String.valueOf(bid) + "::" + String.valueOf(i);
                     PUniqueId nodeId = CacheProxy.getMd5(nodeName);
                     virtualNodes.remove(nodeId.hi);
-                    LOG.debug("Remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.hi);
+                    LOG.debug("remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.hi);
                 }
                 itr.remove();
             }
@@ -140,7 +140,7 @@ public class CachePartition {
             String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
             PUniqueId nodeId = CacheProxy.getMd5(nodeName);
             virtualNodes.put(nodeId.hi, backend);
-            LOG.debug("Add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
+            LOG.debug("add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
     }
 }

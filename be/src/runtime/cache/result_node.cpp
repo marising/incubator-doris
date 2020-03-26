@@ -94,18 +94,22 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
             _partition_map[partition_key] = partition;
 			_partition_list.push_back(partition);
-//            LOG(INFO) << "add index:" << i
-//                << ", pkey:" << partition->get_partition_key() 
-//                << ", list size:" << _partition_list.size() 
-//                << ", map size:" << _partition_map.size();
+ #ifdef PARTITION_CACHE_DEV
+            LOG(INFO) << "add index:" << i
+                << ", pkey:" << partition->get_partition_key() 
+                << ", list size:" << _partition_list.size() 
+                << ", map size:" << _partition_map.size();
+#endif
         } else {
             partition = it->second;
             _data_size -= partition->get_data_size(); 
             partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
-//            LOG(INFO) << "update index:" << i
-//                << ", pkey:" << partition->get_partition_key() 
-//                << ", list size:" << _partition_list.size() 
-//                << ", map size:" << _partition_map.size();
+#ifdef PARTITION_CACHE_DEV                      
+            LOG(INFO) << "update index:" << i
+                << ", pkey:" << partition->get_partition_key() 
+                << ", list size:" << _partition_list.size() 
+                << ", map size:" << _partition_map.size();
+#endif
         }
         _data_size += partition->get_data_size();
 	}
@@ -146,9 +150,11 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
     auto end_it = _partition_list.end();
     auto part_it = _partition_list.begin();
     while (param_idx < request->param_size() && part_it != _partition_list.end()) {
-//        LOG(LOG) << "Param index : " << param_idx 
-//            << ", param part Key : "<< request->param(param_idx).partition_key()
-//            << ", batch part key : " << (*part_it)->get_partition_key();
+ #ifdef PARTITION_CACHE_DEV        
+        LOG(INFO) << "Param index : " << param_idx 
+            << ", param part Key : "<< request->param(param_idx).partition_key()
+            << ", batch part key : " << (*part_it)->get_partition_key();
+#endif
         if (!find) {
             while (part_it != _partition_list.end() && 
                 request->param(param_idx).partition_key() > (*part_it)->get_partition_key()) {
@@ -163,9 +169,11 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
             }
         }
         if (find) {
-//            LOG(WARNING) << "Find! Param index : " << param_idx 
-//                << ", param part Key : "<< request->param(param_idx).partition_key()
-//                << ", batch part key : " << (*part_it)->get_partition_key();
+ #ifdef PARTITION_CACHE_DEV      
+            LOG(INFO) << "Find! Param index : " << param_idx 
+                << ", param part Key : "<< request->param(param_idx).partition_key()
+                << ", batch part key : " << (*part_it)->get_partition_key();
+ #endif
             if ((*part_it)->is_hit_cache(request->param(param_idx).partition_key(), 
                     request->param(param_idx).last_version(), 
                     request->param(param_idx).last_version_time())) {

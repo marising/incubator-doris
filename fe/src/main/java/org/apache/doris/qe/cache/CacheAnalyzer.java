@@ -173,20 +173,20 @@ public class CacheAnalyzer {
         olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
         olapTable = olapNode.getOlapTable();
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.debug("The partition of OlapTable not RANGE Type.");
+            LOG.debug("the partition of OlapTable not RANGE Type.");
             return CacheModel.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.debug("Size of columns for partition key {}", columns.size());
+            LOG.debug("size of columns for partition key {}", columns.size());
             return CacheModel.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("Not group by partition key, key={}",partColumn.getName());
+            LOG.debug("not group by partition key, key={}",partColumn.getName());
             return CacheModel.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
@@ -213,6 +213,7 @@ public class CacheAnalyzer {
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             request.addParam(0, 0, lastestTime);
+            request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch sql cache, msg={}", status.getErrorMsg());
             if (cacheResult != null) {
@@ -233,6 +234,7 @@ public class CacheAnalyzer {
                         single.getPartition().getVisibleVersionTime()
                 );
             }
+            request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch partition cache, msg={}", status.getErrorMsg());
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
@@ -248,9 +250,9 @@ public class CacheAnalyzer {
         }
 
         if( cacheResult != null){
-            LOG.info("Hit cache model:{}, stmtid:{}",cacheModel, stmtId);	 
+            LOG.info("hit cache model:{}, stmtid:{}",cacheModel, stmtId);
         } else {
-            LOG.info("Miss cache model:{}, stmtid:{}", cacheModel, stmtId);	 
+            LOG.info("miss cache model:{}, stmtid:{}", cacheModel, stmtId);
         }
         return cacheResult;
     }
@@ -269,7 +271,7 @@ public class CacheAnalyzer {
 
     public void updateCache() {
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.info("Can not be cached. Rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
+            LOG.info("can not be cached. Rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
                     Config.cache_result_max_row_count);
             return;
         }
@@ -279,12 +281,12 @@ public class CacheAnalyzer {
         }else if( cacheModel == CacheModel.Partition){
             rowBatchBuilder.buildUpdateRequest(nokeyStmt.toSql());
         }
-
         CacheProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.getUpdateRequest();
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
+        updateRequest.Debug();
         proxy.updateCache(updateRequest,status);
-        LOG.info("Update cache model{}, stmtid:{}, ", cacheModel, stmtId);
+        LOG.info("update cache model{}, stmtid:{}, ", cacheModel, stmtId);
     }
 
     public long nowtime() {

@@ -227,7 +227,6 @@ void PInternalServiceImpl<T>::update_cache(google::protobuf::RpcController* cont
         const PUpdateCacheRequest* request,
         PUpdateCacheResult* response,
         google::protobuf::Closure* done) {
-    LOG(INFO) << "update cache sql_key=" << print_id(request->sql_key());
     brpc::ClosureGuard closure_guard(done);
     _exec_env->result_cache()->update(request, response);
 }
@@ -237,7 +236,6 @@ void PInternalServiceImpl<T>::fetch_cache(google::protobuf::RpcController* contr
         const PFetchCacheRequest* request,
         PFetchCacheResult* result,
         google::protobuf::Closure* done) {
-    LOG(INFO) << "fetch cache sql_key=" << print_id(request->sql_key());
     brpc::ClosureGuard closure_guard(done);
    _exec_env->result_cache()->fetch(request, result);
 }
@@ -247,7 +245,6 @@ void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* contr
         const PUpdateCacheRequest* request,
         PUpdateCacheResult* response,
         google::protobuf::Closure* done) {
-    LOG(INFO) << "clear cache";
     brpc::ClosureGuard closure_guard(done);
     _exec_env->result_cache()->clear();
 }

@@ -100,12 +100,13 @@ void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult*
 }
 
 void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* result) {
-    LOG(INFO) << "fetch cache, sql key:" << request->sql_key();;
     CacheReadLock read_lock(_cache_mtx);
     UniqueId sql_key = request->sql_key();
+    LOG(INFO) << "fetch cache, sql key:" << sql_key;
     auto it = _node_map.find(sql_key);
     if (it == _node_map.end()) {
         result->set_status(PCacheStatus::NO_SQL_KEY);
+        LOG(INFO) << "no such sql key:" << sql_key;
         return;
     }
     ResultNode* node = it->second;

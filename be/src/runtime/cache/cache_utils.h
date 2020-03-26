@@ -36,6 +36,10 @@ namespace doris {
 typedef boost::shared_lock<boost::shared_mutex> CacheReadLock;
 typedef boost::unique_lock<boost::shared_mutex> CacheWriteLock;
 
+#ifndef PARTITION_CACHE_DEV
+#define  PARTITION_CACHE_DEV
+#endif
+
 struct SqlStat {
 	static const uint32 DAY_SECONDS = 86400;
 	long cache_time;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -118,6 +119,15 @@ public class CacheProxy {
                 value.getRpcValue(rpcRequest);
             }
         }
+        public void Debug(){
+            LOG.info("update cache request,sql_key={}", DebugUtil.printId(sqlKey));
+            for(UpdateCacheValue value : valueList) {
+                LOG.info("update cache request value, part_key={}, version={}, time={}",
+                        value.getPartitionKey(),
+                        value.getLastVersion(),
+                        value.getLastVersionTime());
+            }
+        }
     }
 
     public static class FetchCacheParam {
@@ -189,6 +199,15 @@ public class CacheProxy {
             rpcReq.sql_key = sqlKey;
             for (FetchCacheParam param : paramList) {
                 param.getRpcPram(rpcReq);
+            }
+        }
+        public void Debug(){
+            LOG.info("fetch cache request, sql_key={}", DebugUtil.printId(sqlKey));
+            for(FetchCacheParam param : paramList) {
+                LOG.info("fetch cache request param, part_key={}, version={}, time={}",
+                        param.getPartitionKey(),
+                        param.getLastVersion(),
+                        param.getLastVersionTime());
             }
         }
     }
