@@ -39,7 +39,7 @@ void PartitionRowBatch::set_row_batch(const int64& last_version, const long& las
     _prow_batch = new PRowBatch(*prow_batch);
 	_cache_stat.set_update(last_version, last_version_time);
 	_data_size = RowBatch::get_batch_size(*_prow_batch);
-    //LOG(INFO) << "finish set row batch, row num:"<< prow_batch->num_rows() << ", batch size:" << _data_size;
+    LOG(INFO) << "finish set row batch, row num:"<< prow_batch->num_rows() << ", batch size:" << _data_size;
 }
 
 bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& last_version, 

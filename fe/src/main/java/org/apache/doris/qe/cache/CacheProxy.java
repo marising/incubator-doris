@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.doris.proto.PRowBatch;
 
 import org.apache.doris.proto.PUpdateCacheRequest;
 import org.apache.doris.proto.PUpdateCacheResult;
@@ -64,8 +65,9 @@ public class CacheProxy {
         }
         public void getRpcValue(PUpdateCacheRequest rpcRequest) {
             PUpdateCacheValue value = new PUpdateCacheValue();
+            value.row_batch = new PRowBatch();
+            
             TSerializer serializer = new TSerializer();
-
             value.partition_key = this.partitionKey;
             value.last_version = this.lastVersion;
             value.last_version_time = this.lastVersionTime;
@@ -73,11 +75,13 @@ public class CacheProxy {
             try {
                 buffer = serializer.serialize(resultBatch);
             }catch (TException e){
+                LOG.warn("Serialize TResultBatch failed.exception={}",  e);
                 return;
             }
             value.row_batch.is_compressed = false;
             value.row_batch.num_rows = resultBatch.getRows().size();
-            value.row_batch.tuple_data = buffer;
+            value.row_batch.tuple_data=new byte[buffer.length];
+            System.arraycopy(buffer,0,value.row_batch.tuple_data,0,buffer.length);
             rpcRequest.value.add(value);
         }
     }
@@ -114,11 +118,14 @@ public class CacheProxy {
             valueList.add(value);
         }
 
-        public void getRpcRequest(PUpdateCacheRequest rpcRequest) {
+        public PUpdateCacheRequest getRpcRequest() {
+            PUpdateCacheRequest rpcRequest = new PUpdateCacheRequest();
+            rpcRequest.value = Lists.newArrayList();
             rpcRequest.sql_key = sqlKey;
             for (UpdateCacheValue value : valueList) {
                 value.getRpcValue(rpcRequest);
             }
+            return rpcRequest;
         }
         public void Debug(){
             LOG.info("update cache request,sql_key={}", DebugUtil.printId(sqlKey));
@@ -152,14 +159,11 @@ public class CacheProxy {
             return lastVersionTime;
         }
 
-        public void getRpcPram(PFetchCacheRequest rpcRequest) {
+        public void getRpcParam(PFetchCacheRequest rpcRequest) {
             PFetchCacheParam param = new PFetchCacheParam();
             param.partition_key = this.partitionKey;
             param.last_version = this.lastVersion;
             param.last_version_time = this.lastVersionTime;
-            if (rpcRequest.param == null){
-                rpcRequest.param = Lists.newArrayList();
-            }
             rpcRequest.param.add(param);
         }
     }
@@ -193,17 +197,17 @@ public class CacheProxy {
 
         public void addParam(long partitionKey, long lastVersion, long lastVersionTime) {
             FetchCacheParam param = new FetchCacheParam(partitionKey, lastVersion, lastVersionTime);
-            if( paramList == null) {
-                paramList = Lists.newArrayList();
-            }
             paramList.add(param);
         }
 
-        public void getRpcRequest(PFetchCacheRequest rpcReq) {
-            rpcReq.sql_key = sqlKey;
+        public PFetchCacheRequest getRpcRequest() {
+            PFetchCacheRequest rpcRequest = new PFetchCacheRequest();
+            rpcRequest.param = Lists.newArrayList();
+            rpcRequest.sql_key = sqlKey;
             for (FetchCacheParam param : paramList) {
-                param.getRpcPram(rpcReq);
+                param.getRpcParam(rpcRequest);
             }
+            return rpcRequest;
         }
         public void Debug(){
             LOG.info("fetch cache request, sql_key={}", DebugUtil.printId(sqlKey));
@@ -280,9 +284,8 @@ public class CacheProxy {
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try{
-            PUpdateCacheRequest rpcReq = new PUpdateCacheRequest();
-            request.getRpcRequest(rpcReq);
-            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().updateCache(address, rpcReq);
+            PUpdateCacheRequest updateRequest = request.getRpcRequest();
+            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
         }catch (RpcException e) {
             LOG.warn("update cache rpc exception, sqlKey={}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
@@ -302,20 +305,19 @@ public class CacheProxy {
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
         FetchCacheResult result = new FetchCacheResult();
         try {
-            PFetchCacheRequest rpcRequest = new PFetchCacheRequest();
-            request.getRpcRequest(rpcRequest);
-            Future<PFetchCacheResult> future = BackendServiceProxy.getInstance().fetchCache(address, rpcRequest);
-            PFetchCacheResult rpcResult = null;
-            while (rpcResult == null) {
+            PFetchCacheRequest fetchRequest = request.getRpcRequest();
+            Future<PFetchCacheResult> future = BackendServiceProxy.getInstance().fetchCache(address, fetchRequest);
+            PFetchCacheResult fetchResult = null;
+            while (fetchResult == null) {
                 long currentTs = System.currentTimeMillis();
                 if (currentTs >= timeoutTs) {
                     throw new TimeoutException("query cache timeout");
                 }
-                rpcResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                if (rpcResult.status != PCacheStatus.FETCH_SUCCESS) {
+                fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+                if (fetchResult.status != PCacheStatus.FETCH_SUCCESS) {
                     return null;
                 }
-                result.setResult(rpcResult);
+                result.setResult(fetchResult);
                 return result;
             }
         } catch (RpcException e) {
@@ -356,9 +358,9 @@ public class CacheProxy {
     private boolean clearCache(UpdateCacheRequest request, Backend backend) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try{
-            PUpdateCacheRequest rpcReq = new PUpdateCacheRequest();
+            PUpdateCacheRequest clearRequest = new PUpdateCacheRequest();
             LOG.info("clear all backend cache, backendId={}", backend.getId());
-            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().clearCache(address, rpcReq);
+            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().clearCache(address, clearRequest);
             return true;
         }catch (RpcException e) {
             LOG.warn("clear cache rpc exception, backendId={}", backend.getId(), e);
