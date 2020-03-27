@@ -223,11 +223,12 @@ public class CacheProxy {
     public static class FetchCacheValue {
         private long partitionKey;
         private RowBatch rowBatch;
-
+        public FetchCacheValue() {
+            rowBatch = new RowBatch();
+        }        
         public long getPartitionKey() {
             return partitionKey;
         }
-
         public void setPartitionKey(long partitionKey) {
             this.partitionKey = partitionKey;
         }
@@ -303,7 +304,7 @@ public class CacheProxy {
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
-        FetchCacheResult result = new FetchCacheResult();
+        FetchCacheResult result = null;
         try {
             PFetchCacheRequest fetchRequest = request.getRpcRequest();
             Future<PFetchCacheResult> future = BackendServiceProxy.getInstance().fetchCache(address, fetchRequest);
@@ -315,8 +316,10 @@ public class CacheProxy {
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
                 if (fetchResult.status != PCacheStatus.FETCH_SUCCESS) {
+                    LOG.info("fetch catch null, status={}", fetchResult.status);
                     return null;
                 }
+                result = new FetchCacheResult();
                 result.setResult(fetchResult);
                 return result;
             }

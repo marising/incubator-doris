@@ -105,6 +105,9 @@ struct PartitionStat : SqlStat {
 	}
         
     bool check_newer(const int64& last_ver, const long& last_ver_time) {
+        if (last_ver == 0 || last_ver_time == 0) {
+            return true;
+        }
         return (last_ver_time > last_version_time) && (last_ver > last_version);
     }
 

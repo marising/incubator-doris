@@ -146,6 +146,7 @@ TEST_F(ResultCacheTest, fetch_simple_data) {
     LOG(WARNING) << "finish fetch1\n";
     ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
     ASSERT_EQ(_fetch_result->value_size(), 1);
+    ASSERT_EQ(_fetch_result->value(0).row_batch().tuple_data(), "0123456789abcdef");
 
     LOG(WARNING) << "finish fetch2\n";
     clear();

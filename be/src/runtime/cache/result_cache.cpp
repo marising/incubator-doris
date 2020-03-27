@@ -116,13 +116,21 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
     if (hit_first) {
         _node_list.move_tail(it->second);
     }
-    result->set_status(status);
     for(auto it = part_rowbatch_list.begin(); it != part_rowbatch_list.end(); it++) {
-        PFetchCacheValue* value = result->add_value();
-        value->set_partition_key((*it)->get_partition_key());
-        PRowBatch* row = value->mutable_row_batch();
-        row->CopyFrom(*((*it)->get_row_batch()));
+        PRowBatch* srcRow = (*it)->get_row_batch();
+        if (srcRow != NULL) {
+            PFetchCacheValue* value = result->add_value();
+            value->set_partition_key((*it)->get_partition_key());
+            PRowBatch* row = value->mutable_row_batch();
+            row->CopyFrom(*srcRow);
+            LOG(INFO) << "fetch partition key:" << (*it)->get_partition_key();
+        } else {
+            LOG(WARNING) << "prowbatch of cache is null";
+            status = PCacheStatus::EMPTY_DATA;
+            break;
+        }
     }
+    result->set_status(status);
 }
 
 bool ResultCache::contains(const UniqueId& sql_key) {

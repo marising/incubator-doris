@@ -157,6 +157,7 @@ enum PCacheStatus {
     NO_PARTITION_KEY = 6;
     INVALID_KEY_RANGE = 7;
     DATA_OVERDUE = 8; 
+    EMPTY_DATA = 9;
 };
 
 message PUpdateCacheValue {

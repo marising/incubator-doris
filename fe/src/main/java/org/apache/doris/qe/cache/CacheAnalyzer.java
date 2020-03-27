@@ -186,7 +186,7 @@ public class CacheAnalyzer {
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("not group by partition key, key={}",partColumn.getName());
+            LOG.debug("not group by partition key, key:{}",partColumn.getName());
             return CacheModel.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
@@ -215,8 +215,8 @@ public class CacheAnalyzer {
             request.addParam(0, 0, lastestTime);
             request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
-            LOG.info("fetch sql cache, msg={}", status.getErrorMsg());
-            if (cacheResult != null) {
+            LOG.info("fetch sql cache, msg:{}", status.getErrorMsg());
+            if (status.ok() && cacheResult != null) {
                 MetricRepo.COUNTER_CACHE_SQL.increase(1L);
             }
         } else if (cacheModel == CacheModel.Partition) {
@@ -236,7 +236,7 @@ public class CacheAnalyzer {
             }
             request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
-            LOG.info("fetch partition cache, msg={}", status.getErrorMsg());
+            LOG.info("fetch partition cache, ms:{}", status.getErrorMsg());
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
                 range.setCacheFlag(value.getPartitionKey());
             }
@@ -249,10 +249,11 @@ public class CacheAnalyzer {
             }
         }
 
-        if( cacheResult != null){
+        if( status.ok() && cacheResult != null) {
             LOG.info("hit cache model:{}, stmtid:{}",cacheModel, stmtId);
         } else {
-            LOG.info("miss cache model:{}, stmtid:{}", cacheModel, stmtId);
+            LOG.info("miss cache model:{}, stmtid:{}, msg:{}", cacheModel, stmtId, status.getErrorMsg());
+            cacheResult = null;
         }
         return cacheResult;
     }
