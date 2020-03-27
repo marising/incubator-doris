@@ -40,6 +40,7 @@ import org.apache.doris.proto.PFetchCacheResult;
 import org.apache.doris.proto.PFetchCacheValue;
 import org.apache.doris.proto.PCacheStatus;
 import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.PQueryStatistics;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +48,9 @@ import org.apache.logging.log4j.Logger;
 import com.google.common.collect.Lists;
 import org.apache.thrift.TSerializer;
 
+import java.nio.ByteBuffer;
+//import io.netty.buffer.Unpooled;
+//import io.netty.util.CharsetUtil;
 import java.security.MessageDigest;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -56,7 +60,18 @@ import java.util.List;
 
 public class CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheProxy.class);
-
+   
+    public static void DebugTResultBatch(TResultBatch batch,String tag){
+        int idx = 0;
+        LOG.info("TAG:{}", tag);
+        for(ByteBuffer row : batch.getRows()){
+            idx ++;
+            LOG.info("idx:{}, pos:{}, limit:{}, capacity:{}", idx, row.position(), row.limit(), row.capacity());
+            String str = new String(row.array());
+            LOG.info("str:{}", str);
+        }
+    }
+ 
     public static class UpdateCacheValue extends FetchCacheParam {
         private TResultBatch resultBatch;
 
@@ -75,7 +90,12 @@ public class CacheProxy {
             value.last_version_time = this.lastVersionTime;
             byte[] buffer = null;
             try {
+                for (ByteBuffer row : resultBatch.getRows()) {
+                    row.flip();
+                }
+                DebugTResultBatch(resultBatch, "UpdateValue");
                 buffer = serializer.serialize(resultBatch);
+                LOG.info("serializer buffer:{}", buffer.length);
             } catch (TException e) {
                 LOG.warn("Serialize TResultBatch failed, exception:{}", e);
                 return;
@@ -84,6 +104,7 @@ public class CacheProxy {
             value.row_batch.num_rows = resultBatch.getRows().size();
             value.row_batch.tuple_data = new byte[buffer.length];
             System.arraycopy(buffer, 0, value.row_batch.tuple_data, 0, buffer.length);
+            //value.row_batch.tuple_data = buffer;
             rpcRequest.value.add(value);
         }
 
@@ -257,11 +278,13 @@ public class CacheProxy {
 
         public void deserialize(byte[] buffer, boolean eos) throws TException {
             PQueryStatistics statistics = new PQueryStatistics();
-            statistics.scan_rows = 0;
-            statistics.scan_bytes = 0;
+            statistics.scan_rows = 0L;
+            statistics.scan_bytes = 0L;
             TResultBatch resultBatch = new TResultBatch();
             TDeserializer deserializer = new TDeserializer();
+            LOG.info("deserialize buffer:{}", buffer.length);
             deserializer.deserialize(resultBatch, buffer);
+            DebugTResultBatch(resultBatch, "FetchValue");
             rowBatch.setQueryStatistics(statistics);
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(eos);
@@ -272,8 +295,8 @@ public class CacheProxy {
                             "is_compressed:{}, packet_seq:{}, row_size:{}",
                     partitionKey,
                     rowBatch.isEos(),
-                    rowBatch.getQueryStatistics().scan_rows(),
-                    rowBatch.getQueryStatistics().scan_bytes(),
+                    rowBatch.getQueryStatistics().scan_rows,
+                    rowBatch.getQueryStatistics().scan_bytes,
                     rowBatch.getBatch().isIs_compressed(),
                     rowBatch.getBatch().getPacket_seq(),
                     rowBatch.getBatch().getRowsSize());
@@ -302,7 +325,7 @@ public class CacheProxy {
                 FetchCacheValue value = new FetchCacheValue();
                 value.setPartitionKey(rpcValue.partition_key);
                 if (i == rpcResult.value.size() - 1) {
-                    value.deserialize(rpcValue.row_batch.tuple_data, true);
+                    value.deserialize(rpcValue.row_batch.tuple_data, false);
                 } else {
                     value.deserialize(rpcValue.row_batch.tuple_data, false);
                 }
@@ -328,6 +351,7 @@ public class CacheProxy {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
+            request.Debug();
             Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
         } catch (RpcException e) {
             LOG.warn("update cache rpc exception, sqlKey:{}", sqlKey, e);
@@ -349,6 +373,8 @@ public class CacheProxy {
         FetchCacheResult result = null;
         try {
             PFetchCacheRequest fetchRequest = request.getRpcRequest();
+            //Debug request info
+            request.Debug();
             Future<PFetchCacheResult> future = BackendServiceProxy.getInstance().fetchCache(address, fetchRequest);
             PFetchCacheResult fetchResult = null;
             while (fetchResult == null) {
@@ -363,6 +389,8 @@ public class CacheProxy {
                 }
                 result = new FetchCacheResult();
                 result.setResult(fetchResult);
+                //Debug result info
+                result.Debug();
                 return result;
             }
         } catch (RpcException e) {

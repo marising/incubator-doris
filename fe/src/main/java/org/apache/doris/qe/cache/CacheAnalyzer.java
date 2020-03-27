@@ -213,7 +213,6 @@ public class CacheAnalyzer {
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
             request.addParam(0, 0, lastestTime);
-            request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch sql cache, msg:{}", status.getErrorMsg());
             if (status.ok() && cacheResult != null) {
@@ -234,7 +233,6 @@ public class CacheAnalyzer {
                         single.getPartition().getVisibleVersionTime()
                 );
             }
-            request.Debug();
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch partition cache, ms:{}", status.getErrorMsg());
             for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
@@ -285,7 +283,6 @@ public class CacheAnalyzer {
         CacheProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.getUpdateRequest();
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
-        updateRequest.Debug();
         proxy.updateCache(updateRequest,status);
         LOG.info("update cache model:{}, stmtid:{}, ", cacheModel, stmtId);
     }

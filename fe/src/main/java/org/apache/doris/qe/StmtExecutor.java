@@ -549,7 +549,7 @@ public class StmtExecutor {
         // so We need to send fields after first batch arrived
 
         //Get result
-        RowBatch batch;
+        RowBatch batch = null;
         MysqlChannel channel = context.getMysqlChannel();
         sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());        
 
@@ -564,13 +564,17 @@ public class StmtExecutor {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         row_idx ++;
-                        LOG.info("send channel row:{}",row_idx);
                         channel.sendOnePacket(row);
+                        LOG.info("send channel row:{}",row_idx);
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (model == CacheModel.Sql) {
+                    if (batch != null) {
+                        statisticsForAuditLog = batch.getQueryStatistics();
+                    } 
                     context.getState().setEof();
+                    LOG.info("set eof");
                     return;
                 }
                 if (model == CacheModel.Partition) {
@@ -588,9 +592,11 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
+                    CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }
+                    CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     context.updateReturnRows(batch.getBatch().getRows().size());
                     cacheAnalyzer.appendRowBatch(batch);
                 }
@@ -607,9 +613,11 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
+                    CacheProxy.DebugTResultBatch( batch.getBatch(), "NormalQuery");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }            
+                    CacheProxy.DebugTResultBatch( batch.getBatch(), "NormalQuery");
                     context.updateReturnRows(batch.getBatch().getRows().size());    
                 }
                 if (batch.isEos()) {
