@@ -59,14 +59,16 @@ public class CacheProxy {
 
     public static class UpdateCacheValue extends FetchCacheParam {
         private TResultBatch resultBatch;
+
         public UpdateCacheValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
             super(partitionKey, lastVersion, lastVersionTime);
             this.resultBatch = resultBatch;
         }
+
         public void getRpcValue(PUpdateCacheRequest rpcRequest) {
             PUpdateCacheValue value = new PUpdateCacheValue();
             value.row_batch = new PRowBatch();
-            
+
             TSerializer serializer = new TSerializer();
             value.partition_key = this.partitionKey;
             value.last_version = this.lastVersion;
@@ -74,15 +76,23 @@ public class CacheProxy {
             byte[] buffer = null;
             try {
                 buffer = serializer.serialize(resultBatch);
-            }catch (TException e){
-                LOG.warn("Serialize TResultBatch failed.exception={}",  e);
+            } catch (TException e) {
+                LOG.warn("Serialize TResultBatch failed, exception:{}", e);
                 return;
             }
             value.row_batch.is_compressed = false;
             value.row_batch.num_rows = resultBatch.getRows().size();
-            value.row_batch.tuple_data=new byte[buffer.length];
-            System.arraycopy(buffer,0,value.row_batch.tuple_data,0,buffer.length);
+            value.row_batch.tuple_data = new byte[buffer.length];
+            System.arraycopy(buffer, 0, value.row_batch.tuple_data, 0, buffer.length);
             rpcRequest.value.add(value);
+        }
+
+        public void Debug() {
+            LOG.info("update cache value, partkey:{}, ver:{}, time:{}, is_compressed:{}, packet_seq:{}, row_size:{}",
+                    partitionKey, lastVersion, lastVersionTime,
+                    resultBatch.isIs_compressed(),
+                    resultBatch.getPacket_seq(),
+                    resultBatch.getRowsSize());
         }
     }
 
@@ -127,13 +137,11 @@ public class CacheProxy {
             }
             return rpcRequest;
         }
-        public void Debug(){
-            LOG.info("update cache request,sql_key={}", DebugUtil.printId(sqlKey));
-            for(UpdateCacheValue value : valueList) {
-                LOG.info("update cache request value, part_key={}, version={}, time={}",
-                        value.getPartitionKey(),
-                        value.getLastVersion(),
-                        value.getLastVersionTime());
+
+        public void Debug() {
+            LOG.info("update cache request, sql_key:{}, value_size:{}", DebugUtil.printId(sqlKey), valueList.size());
+            for (UpdateCacheValue value : valueList) {
+                value.Debug();
             }
         }
     }
@@ -152,9 +160,11 @@ public class CacheProxy {
         public long getPartitionKey() {
             return partitionKey;
         }
+
         public long getLastVersion() {
             return lastVersion;
         }
+
         public long getLastVersionTime() {
             return lastVersionTime;
         }
@@ -209,10 +219,11 @@ public class CacheProxy {
             }
             return rpcRequest;
         }
-        public void Debug(){
-            LOG.info("fetch cache request, sql_key={}", DebugUtil.printId(sqlKey));
-            for(FetchCacheParam param : paramList) {
-                LOG.info("fetch cache request param, part_key={}, version={}, time={}",
+
+        public void Debug() {
+            LOG.info("fetch cache request, sql_key:{}, param count:{}", DebugUtil.printId(sqlKey), paramList.size());
+            for (FetchCacheParam param : paramList) {
+                LOG.info("fetch cache param, part_key:{}, version:{}, time:{}",
                         param.getPartitionKey(),
                         param.getLastVersion(),
                         param.getLastVersionTime());
@@ -223,33 +234,55 @@ public class CacheProxy {
     public static class FetchCacheValue {
         private long partitionKey;
         private RowBatch rowBatch;
+
         public FetchCacheValue() {
             rowBatch = new RowBatch();
-        }        
+        }
+
         public long getPartitionKey() {
             return partitionKey;
         }
+
         public void setPartitionKey(long partitionKey) {
             this.partitionKey = partitionKey;
         }
+
         public RowBatch getRowBatch() {
             return rowBatch;
         }
+
         public void setRowBatch(RowBatch rowBatch) {
             this.rowBatch = rowBatch;
         }
+
         public void deserialize(byte[] buffer, boolean eos) throws TException {
+            PQueryStatistics statistics = new PQueryStatistics();
+            statistics.scan_rows = 0;
+            statistics.scan_bytes = 0;
             TResultBatch resultBatch = new TResultBatch();
             TDeserializer deserializer = new TDeserializer();
             deserializer.deserialize(resultBatch, buffer);
+            rowBatch.setQueryStatistics(statistics);
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(eos);
+        }
+
+        public void Debug() {
+            LOG.info("fetch cache value, part_key:{}, iseos:{}, scan_rows:{}, scan_bytes:{}, " +
+                            "is_compressed:{}, packet_seq:{}, row_size:{}",
+                    partitionKey,
+                    rowBatch.isEos(),
+                    rowBatch.getQueryStatistics().scan_rows(),
+                    rowBatch.getQueryStatistics().scan_bytes(),
+                    rowBatch.getBatch().isIs_compressed(),
+                    rowBatch.getBatch().getPacket_seq(),
+                    rowBatch.getBatch().getRowsSize());
         }
     }
 
     public static class FetchCacheResult {
         private List<FetchCacheValue> valueList;
-        
+
         public FetchCacheResult() {
             valueList = Lists.newArrayList();
         }
@@ -257,21 +290,30 @@ public class CacheProxy {
         public List<FetchCacheValue> getValueList() {
             return valueList;
         }
+
         public void setValueList(List<FetchCacheValue> valueList) {
             this.valueList = valueList;
         }
+
         //PRowBatch.tuple_data is the byte[] of TResultBatch serialize
         public void setResult(PFetchCacheResult rpcResult) throws TException {
             for (int i = 0; i < rpcResult.value.size(); i++) {
                 PFetchCacheValue rpcValue = rpcResult.value.get(i);
                 FetchCacheValue value = new FetchCacheValue();
                 value.setPartitionKey(rpcValue.partition_key);
-                if (i == rpcResult.value.size()-1) {
-                    value.deserialize(rpcValue.row_batch.tuple_data,true);
+                if (i == rpcResult.value.size() - 1) {
+                    value.deserialize(rpcValue.row_batch.tuple_data, true);
                 } else {
-                    value.deserialize(rpcValue.row_batch.tuple_data,false);
+                    value.deserialize(rpcValue.row_batch.tuple_data, false);
                 }
                 valueList.add(value);
+            }
+        }
+
+        public void Debug() {
+            LOG.info("fetch cache result, value size:{}", valueList.size());
+            for (FetchCacheValue value : valueList) {
+                value.Debug();
             }
         }
     }
@@ -280,15 +322,15 @@ public class CacheProxy {
         PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
         if (backend == null) {
-            LOG.warn("update cache can't find backend, sqlKey={}", sqlKey);
+            LOG.warn("update cache can't find backend, sqlKey:{}", sqlKey);
             return;
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        try{
+        try {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
             Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
-        }catch (RpcException e) {
-            LOG.warn("update cache rpc exception, sqlKey={}", sqlKey, e);
+        } catch (RpcException e) {
+            LOG.warn("update cache rpc exception, sqlKey:{}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId());
         } finally {
@@ -296,10 +338,10 @@ public class CacheProxy {
         }
     }
 
-    public FetchCacheResult fetchCache(FetchCacheRequest request,int timeoutMs, Status status) {
+    public FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status) {
         PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
-        if( backend == null){
+        if (backend == null) {
             return null;
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
@@ -316,7 +358,7 @@ public class CacheProxy {
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
                 if (fetchResult.status != PCacheStatus.FETCH_SUCCESS) {
-                    LOG.info("fetch catch null, status={}", fetchResult.status);
+                    LOG.info("fetch catch null, status:{}", fetchResult.status);
                     return null;
                 }
                 result = new FetchCacheResult();
@@ -324,20 +366,20 @@ public class CacheProxy {
                 return result;
             }
         } catch (RpcException e) {
-            LOG.warn("fetch catch rpc exception, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
+            LOG.warn("fetch catch rpc exception, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId());
         } catch (InterruptedException e) {
-            LOG.warn("future get interrupted exception, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
+            LOG.warn("future get interrupted exception, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("interrupted exception");
         } catch (ExecutionException e) {
-            LOG.warn("future get execution exception, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
+            LOG.warn("future get execution exception, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("execution exception");
         } catch (TException e) {
-            LOG.warn("fetch result deserialize error, sqlKey={}, backend={}", sqlKey, backend.getId(), e);            
+            LOG.warn("fetch result deserialize error, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("deserialize error");
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, sqlKey={}, backend={}", sqlKey, backend.getId(), e);
+            LOG.warn("fetch result timeout, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("query timeout");
         } finally {
         }
@@ -352,7 +394,7 @@ public class CacheProxy {
                 retry++;
             }
             if (retry >= 3) {
-                LOG.warn("clear cache timeout, backend={}", backend.getId());
+                LOG.warn("clear cache timeout, backend:{}", backend.getId());
                 SimpleScheduler.addToBlacklist(backend.getId());
             }
         }
@@ -360,24 +402,24 @@ public class CacheProxy {
 
     private boolean clearCache(UpdateCacheRequest request, Backend backend) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        try{
+        try {
             PUpdateCacheRequest clearRequest = new PUpdateCacheRequest();
-            LOG.info("clear all backend cache, backendId={}", backend.getId());
+            LOG.info("clear all backend cache, backendId:{}", backend.getId());
             Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().clearCache(address, clearRequest);
             return true;
-        }catch (RpcException e) {
-            LOG.warn("clear cache rpc exception, backendId={}", backend.getId(), e);
+        } catch (RpcException e) {
+            LOG.warn("clear cache rpc exception, backendId:{}", backend.getId(), e);
             SimpleScheduler.addToBlacklist(backend.getId());
         } finally {
         }
-        return false; 
+        return false;
     }
 
     public static PUniqueId getMd5(String str) {
         MessageDigest msgDigest;
         try {
             msgDigest = MessageDigest.getInstance("MD5");
-        } catch(Exception e) {
+        } catch (Exception e) {
             return null;
         }
         final byte[] digest = msgDigest.digest(str.getBytes());
@@ -390,7 +432,7 @@ public class CacheProxy {
     public static final long getLong(final byte[] array, final int offset) {
         long value = 0;
         for (int i = 0; i < 8; i++) {
-            value = ((value << 8) | (array[offset+i] & 0xFF));
+            value = ((value << 8) | (array[offset + i] & 0xFF));
         }
         return value;
     }

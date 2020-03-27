@@ -272,7 +272,7 @@ public class CacheAnalyzer {
 
     public void updateCache() {
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.info("can not be cached. Rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
+            LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
                     Config.cache_result_max_row_count);
             return;
         }
