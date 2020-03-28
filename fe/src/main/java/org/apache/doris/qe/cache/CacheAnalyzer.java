@@ -235,8 +235,8 @@ public class CacheAnalyzer {
             }
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch partition cache, ms:{}", status.getErrorMsg());
-            for(CacheProxy.FetchCacheValue value :cacheResult.getValueList()) {
-                range.setCacheFlag(value.getPartitionKey());
+            for(CacheProxy.CacheValue value :cacheResult.getValueList()) {
+                range.setCacheFlag(value.param.partition_key);
             }
             newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);

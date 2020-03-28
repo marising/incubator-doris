@@ -39,49 +39,74 @@
 namespace doris {
 
 enum PCacheStatus;
-class PFetchCacheParam;
+class PCacheParam;
+class PCacheValue;
+class PCacheResponse;
 class PFetchCacheRequest;
-class PFetchCacheValue;
 class PFetchCacheResult;
-class PUpdateCacheValue;
 class PUpdateCacheRequest;
-class PUpdateCacheResult;
+class PClearCacheRequest;
 
 /*
 * Cache one partition data
 */
 class PartitionRowBatch{
 public:
-	PartitionRowBatch(int64 partition_key) : _partition_key(partition_key),  _prow_batch(NULL), _data_size(0) {
+	PartitionRowBatch(int64 partition_key) : _partition_key(partition_key), _cache_value(NULL), _data_size(0) {
 	}
 
 	~PartitionRowBatch() {
 	}
 	
-	void set_row_batch(const int64& last_version, const long& last_version_time, const PRowBatch* prow_batch);
-	bool is_hit_cache(const int64& partition_key, const int64& last_version, const long& last_version_time);
+	void set_row_batch(const PCacheValue& value);
+	bool is_hit_cache(const PCacheParam& param);
 	void clear();
 
 	int64 get_partition_key() const {
 		return _partition_key;
 	}
 
-	PRowBatch* get_row_batch() {
-		return _prow_batch;
+	PCacheValue* get_value() {
+		return _cache_value;
 	}
 
 	size_t get_data_size() {
 		return _data_size;
 	}
 
-	const PartitionStat* get_stat() const {
+	const CacheStat* get_stat() const {
 		return &_cache_stat;
 	}
 private:
+	bool check_match(const PCacheParam& req_param) {
+		if (req_param.last_version() > _cache_value->param().last_version()) {
+			return false;
+		}
+		if (req_param.last_version_time() > _cache_value->param().last_version_time()) {
+		 	return false;
+		}
+		return true;
+	}
+        
+    bool check_newer(const PCacheParam& up_param) {
+		//for init data of sql cache
+        if (up_param.last_version() == 0 || up_param.last_version_time() == 0) {
+            return true;
+        }
+		if (up_param.last_version_time() > _cache_value->param().last_version_time() ){
+			return true;
+		}
+		if (up_param.last_version() > _cache_value->param().last_version()) {
+			return true;
+		}
+		return false;
+	}
+
+private:
 	int64 _partition_key;
-	PRowBatch* _prow_batch;
+	PCacheValue* _cache_value;
 	size_t _data_size;
-	PartitionStat _cache_stat;
+	CacheStat _cache_stat;
 };
 
 typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
@@ -171,7 +196,7 @@ public:
 		}
 	}
 
-	const PartitionStat* get_first_stat() const {
+	const CacheStat* get_first_stat() const {
 		if( _partition_list.size() == 0) {
 			return NULL;
 		} else {
@@ -179,7 +204,7 @@ public:
 		}
 	}
 
-	const PartitionStat* get_last_stat() const{
+	const CacheStat* get_last_stat() const{
 		if (_partition_list.size() == 0) {
 			return NULL;
 		} else {

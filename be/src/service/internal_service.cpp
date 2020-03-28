@@ -225,7 +225,7 @@ void PInternalServiceImpl<T>::get_info(
 template<typename T>
 void PInternalServiceImpl<T>::update_cache(google::protobuf::RpcController* controller,
         const PUpdateCacheRequest* request,
-        PUpdateCacheResult* response,
+        PCacheResponse* response,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     _exec_env->result_cache()->update(request, response);
@@ -242,11 +242,11 @@ void PInternalServiceImpl<T>::fetch_cache(google::protobuf::RpcController* contr
 
 template<typename T>
 void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* controller,
-        const PUpdateCacheRequest* request,
-        PUpdateCacheResult* response,
+        const PClearCacheRequest* request,
+        PCacheResponse* response,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    _exec_env->result_cache()->clear();
+    _exec_env->result_cache()->clear(request, response);
 }
 
 template class PInternalServiceImpl<PBackendService>;

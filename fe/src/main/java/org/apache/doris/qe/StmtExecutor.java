@@ -560,7 +560,7 @@ public class StmtExecutor {
             CacheModel model = cacheAnalyzer.getCacheModel();
             if (cacheResult != null) {
                 int row_idx = 0;
-		        for (CacheProxy.FetchCacheValue value : cacheResult.getValueList()) {
+		        for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         row_idx ++;

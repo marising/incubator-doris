@@ -40,13 +40,13 @@ typedef boost::unique_lock<boost::shared_mutex> CacheWriteLock;
 #define  PARTITION_CACHE_DEV
 #endif
 
-struct SqlStat {
+struct CacheStat {
 	static const uint32 DAY_SECONDS = 86400;
 	long cache_time;
     long last_update_time;
 	long last_read_time;	
 	uint32 read_count;
-	SqlStat() {
+	CacheStat() {
         init();
 	}    
 
@@ -63,7 +63,7 @@ struct SqlStat {
         read_count = 0;
     }
 
-	void set_update() {
+	void update() {
 		last_update_time = cache_time_second();
         if (cache_time == 0) {
             cache_time = last_update_time;
@@ -72,49 +72,17 @@ struct SqlStat {
         read_count++;
 	}
 
-	void set_read() {
+	void query() {
 		last_read_time = cache_time_second();
 		read_count++;
 	}
 
-	double last_read_day() {
+	double last_query_day() {
 		return (cache_time_second() - last_read_time) * 1.0 / DAY_SECONDS;
 	}
 
-	double avg_read_count() {
+	double avg_query_count() {
 		return read_count * DAY_SECONDS * 1.0 / (cache_time_second() - last_read_time + 1);
-	}
-};
-
-/*
-* Set cache information of table/partition, statistics cache usage information
-*/
-struct PartitionStat : SqlStat {
-	int64 last_version;
-	long last_version_time;
-	PartitionStat() {
-        SqlStat::init();
-        last_version = 0;
-        last_version_time = 0;
-	}
-
-	bool check_match(const int64& last_ver, const long& last_ver_time) {
-		if (last_ver > last_version) return false;
-		if (last_ver_time > last_version_time) return false;
-		return true;
-	}
-        
-    bool check_newer(const int64& last_ver, const long& last_ver_time) {
-        if (last_ver == 0 || last_ver_time == 0) {
-            return true;
-        }
-        return (last_ver_time > last_version_time) && (last_ver > last_version);
-    }
-
-	void set_update(const int64& last_ver, const long& last_ver_time) {
-		SqlStat::set_update();
-		last_version = last_ver;
-		last_version_time = last_ver_time;		
 	}
 };
 

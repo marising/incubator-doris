@@ -89,7 +89,7 @@ public:
 
     void update_cache(google::protobuf::RpcController* controller,
         const PUpdateCacheRequest* request,
-        PUpdateCacheResult* response,
+        PCacheResponse* response,
         google::protobuf::Closure* done) override;    
 
     void fetch_cache(google::protobuf::RpcController* controller,
@@ -98,8 +98,8 @@ public:
         google::protobuf::Closure* done) override;
 
     void clear_cache(google::protobuf::RpcController* controller,
-        const PUpdateCacheRequest* request,
-        PUpdateCacheResult* response,
+        const PClearCacheRequest* request,
+        PCacheResponse* response,
         google::protobuf::Closure* done) override;
 private:
     Status _exec_plan_fragment(brpc::Controller* cntl);

@@ -18,40 +18,32 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.proto.PCacheStatus;
+import org.apache.doris.proto.PCacheParam;
+import org.apache.doris.proto.PCacheValue;
+import org.apache.doris.proto.PCacheResponse;
+import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
+import org.apache.doris.proto.PClearCacheRequest;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.common.Status;
-
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
-import org.apache.thrift.TDeserializer;
-import org.apache.thrift.TException;
-import org.apache.doris.proto.PRowBatch;
-
-import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PUpdateCacheResult;
-import org.apache.doris.proto.PUpdateCacheValue;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheParam;
-import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PFetchCacheValue;
-import org.apache.doris.proto.PCacheStatus;
-import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.proto.PQueryStatistics;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.Lists;
-import org.apache.thrift.TSerializer;
 
 import java.nio.ByteBuffer;
-//import io.netty.buffer.Unpooled;
-//import io.netty.util.CharsetUtil;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutionException;
@@ -66,283 +58,189 @@ public class CacheProxy {
         LOG.info("TAG:{}", tag);
         for(ByteBuffer row : batch.getRows()){
             idx ++;
-            LOG.info("idx:{}, pos:{}, limit:{}, capacity:{}", idx, row.position(), row.limit(), row.capacity());
-            String str = new String(row.array());
+            LOG.info("idx:{}, pos:{}, remain:{}, limit:{}, capacity:{}", idx, row.position(), row.remaining(),
+                    row.limit(), row.capacity());
+            String str = new String(row.array(),row.position(),row.limit());
             LOG.info("str:{}", str);
         }
     }
- 
-    public static class UpdateCacheValue extends FetchCacheParam {
-        private TResultBatch resultBatch;
 
-        public UpdateCacheValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
-            super(partitionKey, lastVersion, lastVersionTime);
-            this.resultBatch = resultBatch;
+    public static class CacheParam extends PCacheParam {
+        public CacheParam(long partitionKey, long lastVersion, long lastVersionTime) {
+            partition_key = partitionKey;
+            last_version = lastVersion;
+            last_version_time = lastVersionTime;
         }
 
-        public void getRpcValue(PUpdateCacheRequest rpcRequest) {
-            PUpdateCacheValue value = new PUpdateCacheValue();
-            value.row_batch = new PRowBatch();
-
-            TSerializer serializer = new TSerializer();
-            value.partition_key = this.partitionKey;
-            value.last_version = this.lastVersion;
-            value.last_version_time = this.lastVersionTime;
-            byte[] buffer = null;
-            try {
-                for (ByteBuffer row : resultBatch.getRows()) {
-                    row.flip();
-                }
-                DebugTResultBatch(resultBatch, "UpdateValue");
-                buffer = serializer.serialize(resultBatch);
-                LOG.info("serializer buffer:{}", buffer.length);
-            } catch (TException e) {
-                LOG.warn("Serialize TResultBatch failed, exception:{}", e);
-                return;
-            }
-            value.row_batch.is_compressed = false;
-            value.row_batch.num_rows = resultBatch.getRows().size();
-            value.row_batch.tuple_data = new byte[buffer.length];
-            System.arraycopy(buffer, 0, value.row_batch.tuple_data, 0, buffer.length);
-            //value.row_batch.tuple_data = buffer;
-            rpcRequest.value.add(value);
+        public PCacheParam getRParam() {
+            PCacheParam param = new PCacheParam();
+            param.partition_key = partition_key;
+            param.last_version = last_version;
+            param.last_version_time = last_version_time;
+            return param;
         }
 
         public void Debug() {
-            LOG.info("update cache value, partkey:{}, ver:{}, time:{}, is_compressed:{}, packet_seq:{}, row_size:{}",
-                    partitionKey, lastVersion, lastVersionTime,
-                    resultBatch.isIs_compressed(),
-                    resultBatch.getPacket_seq(),
-                    resultBatch.getRowsSize());
+            LOG.info("cache param, part key:{}, version:{}, time:{}",
+                    partition_key, last_version, last_version_time);
+        }
+    }
+ 
+    public static class CacheValue extends PCacheValue {
+        public CacheParam param;
+        public TResultBatch resultBatch;
+
+        public CacheValue() {
+            param = null;
+            row = Lists.newArrayList();
+            data_size = 0;
+            resultBatch = new TResultBatch();
+        }
+
+        public void addRpcResult(PCacheValue value) {
+            for (byte[] one : value.row) {
+                resultBatch.addToRows(ByteBuffer.wrap(one));
+            }
+        }
+
+        public RowBatch getRowBatch() {
+            RowBatch batch = new RowBatch();
+            resultBatch.setPacket_seq(1);
+            resultBatch.setIs_compressed(false);
+            batch.setBatch(resultBatch);
+            batch.setEos(true);
+            return batch;
+        }
+
+        public void addThriftResult(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
+            param = new CacheParam(partitionKey, lastVersion, lastVersionTime);
+            for (ByteBuffer buf : resultBatch.getRows()) {
+                data_size += buf.remaining();
+                byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
+                row.add(bytes);
+            }
+        }
+
+        public PCacheValue getRpcValue() {
+            PCacheValue value = new PCacheValue();
+            value.param = param.getRParam();
+            value.data_size = data_size;
+            value.row = row;
+            return value;
+        }
+
+        public void Debug() {
+            LOG.info("update cache value, partkey:{}, ver:{}, time:{}, row_num:{}, data_size:{}",
+                    param.partition_key, param.last_version, param.last_version_time,
+                    row.size(),
+                    data_size);
+            for(int i = 0; i < row.size(); i++) {
+                LOG.info("{}:{}", i, row.toString());
+            }
         }
     }
 
-    public static class UpdateCacheRequest {
+    public static class UpdateCacheRequest extends PUpdateCacheRequest {
         private String sqlStr;
-        private PUniqueId sqlKey;
-        private List<UpdateCacheValue> valueList;
+        private List<CacheValue> valueList;
 
         public UpdateCacheRequest(String sqlStr) {
             this.sqlStr = sqlStr;
-            this.sqlKey = getMd5(this.sqlStr);
+            this.sql_key = getMd5(this.sqlStr);
             this.valueList = Lists.newArrayList();
         }
 
-        public String getSqlStr() {
-            return sqlStr;
-        }
-
-        public PUniqueId getSqlKey() {
-            return sqlKey;
-        }
-
-        public void setSqlKey(PUniqueId sqlKey) {
-            this.sqlKey = sqlKey;
-        }
-
-        public List<UpdateCacheValue> getValueList() {
-            return valueList;
-        }
-
         public void addValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
-            UpdateCacheValue value = new UpdateCacheValue(partitionKey, lastVersion, lastVersionTime, resultBatch);
+            CacheValue value = new CacheValue();
+            value.addThriftResult(partitionKey, lastVersion, lastVersionTime, resultBatch);
             valueList.add(value);
         }
 
         public PUpdateCacheRequest getRpcRequest() {
-            PUpdateCacheRequest rpcRequest = new PUpdateCacheRequest();
-            rpcRequest.value = Lists.newArrayList();
-            rpcRequest.sql_key = sqlKey;
-            for (UpdateCacheValue value : valueList) {
-                value.getRpcValue(rpcRequest);
+            PUpdateCacheRequest request = new PUpdateCacheRequest();
+            request.value = Lists.newArrayList();
+            request.sql_key = sql_key;
+            for (CacheValue value : valueList) {
+                request.value.add(value.getRpcValue());
             }
-            return rpcRequest;
+            return request;
         }
 
         public void Debug() {
-            LOG.info("update cache request, sql_key:{}, value_size:{}", DebugUtil.printId(sqlKey), valueList.size());
-            for (UpdateCacheValue value : valueList) {
+            LOG.info("update cache request, sql_key:{}, value_size:{}", DebugUtil.printId(sql_key),
+                    valueList.size());
+            for (CacheValue value : valueList) {
                 value.Debug();
             }
         }
     }
 
-    public static class FetchCacheParam {
-        protected long partitionKey;
-        protected long lastVersion;
-        protected long lastVersionTime;
 
-        public FetchCacheParam(long partitionKey, long lastVersion, long lastVersionTime) {
-            this.partitionKey = partitionKey;
-            this.lastVersion = lastVersion;
-            this.lastVersionTime = lastVersionTime;
-        }
-
-        public long getPartitionKey() {
-            return partitionKey;
-        }
-
-        public long getLastVersion() {
-            return lastVersion;
-        }
-
-        public long getLastVersionTime() {
-            return lastVersionTime;
-        }
-
-        public void getRpcParam(PFetchCacheRequest rpcRequest) {
-            PFetchCacheParam param = new PFetchCacheParam();
-            param.partition_key = this.partitionKey;
-            param.last_version = this.lastVersion;
-            param.last_version_time = this.lastVersionTime;
-            rpcRequest.param.add(param);
-        }
-    }
-
-    public static class FetchCacheRequest {
+    public static class FetchCacheRequest extends PFetchCacheRequest {
         private String sqlStr;
-        private PUniqueId sqlKey;
-        private List<FetchCacheParam> paramList;
+        private List<CacheParam> paramList;
 
         public FetchCacheRequest(String sqlStr) {
             this.sqlStr = sqlStr;
-            this.sqlKey = getMd5(this.sqlStr);
-            paramList = Lists.newArrayList();
-        }
-
-        public String getSqlStr() {
-            return sqlStr;
-        }
-
-        public PUniqueId getSqlKey() {
-            return sqlKey;
-        }
-
-        public void setSqlKey(PUniqueId sqlKey) {
-            this.sqlKey = sqlKey;
-        }
-
-        public List<FetchCacheParam> getParamList() {
-            return paramList;
+            this.sql_key = getMd5(this.sqlStr);
+            this.paramList = Lists.newArrayList();
         }
 
         public void addParam(long partitionKey, long lastVersion, long lastVersionTime) {
-            FetchCacheParam param = new FetchCacheParam(partitionKey, lastVersion, lastVersionTime);
+            CacheParam param = new CacheParam(partitionKey, lastVersion, lastVersionTime);
             paramList.add(param);
         }
 
         public PFetchCacheRequest getRpcRequest() {
-            PFetchCacheRequest rpcRequest = new PFetchCacheRequest();
-            rpcRequest.param = Lists.newArrayList();
-            rpcRequest.sql_key = sqlKey;
-            for (FetchCacheParam param : paramList) {
-                param.getRpcParam(rpcRequest);
+            PFetchCacheRequest request = new PFetchCacheRequest();
+            request.param = Lists.newArrayList();
+            request.sql_key = sql_key;
+            for (CacheParam param : paramList) {
+                request.param.add(param.getRParam());
             }
-            return rpcRequest;
+            return request;
         }
 
         public void Debug() {
-            LOG.info("fetch cache request, sql_key:{}, param count:{}", DebugUtil.printId(sqlKey), paramList.size());
-            for (FetchCacheParam param : paramList) {
-                LOG.info("fetch cache param, part_key:{}, version:{}, time:{}",
-                        param.getPartitionKey(),
-                        param.getLastVersion(),
-                        param.getLastVersionTime());
+            LOG.info("fetch cache request, sql_key:{}, param count:{}", DebugUtil.printId(sql_key), paramList.size());
+            for (CacheParam param : paramList) {
+                param.Debug();
             }
         }
     }
 
-    public static class FetchCacheValue {
-        private long partitionKey;
-        private RowBatch rowBatch;
-
-        public FetchCacheValue() {
-            rowBatch = new RowBatch();
-        }
-
-        public long getPartitionKey() {
-            return partitionKey;
-        }
-
-        public void setPartitionKey(long partitionKey) {
-            this.partitionKey = partitionKey;
-        }
-
-        public RowBatch getRowBatch() {
-            return rowBatch;
-        }
-
-        public void setRowBatch(RowBatch rowBatch) {
-            this.rowBatch = rowBatch;
-        }
-
-        public void deserialize(byte[] buffer, boolean eos) throws TException {
-            PQueryStatistics statistics = new PQueryStatistics();
-            statistics.scan_rows = 0L;
-            statistics.scan_bytes = 0L;
-            TResultBatch resultBatch = new TResultBatch();
-            TDeserializer deserializer = new TDeserializer();
-            LOG.info("deserialize buffer:{}", buffer.length);
-            deserializer.deserialize(resultBatch, buffer);
-            DebugTResultBatch(resultBatch, "FetchValue");
-            rowBatch.setQueryStatistics(statistics);
-            rowBatch.setBatch(resultBatch);
-            rowBatch.setEos(eos);
-        }
-
-        public void Debug() {
-            LOG.info("fetch cache value, part_key:{}, iseos:{}, scan_rows:{}, scan_bytes:{}, " +
-                            "is_compressed:{}, packet_seq:{}, row_size:{}",
-                    partitionKey,
-                    rowBatch.isEos(),
-                    rowBatch.getQueryStatistics().scan_rows,
-                    rowBatch.getQueryStatistics().scan_bytes,
-                    rowBatch.getBatch().isIs_compressed(),
-                    rowBatch.getBatch().getPacket_seq(),
-                    rowBatch.getBatch().getRowsSize());
-        }
-    }
-
-    public static class FetchCacheResult {
-        private List<FetchCacheValue> valueList;
+    public static class FetchCacheResult extends PFetchCacheResult {
+        Status status;
+        private List<CacheValue> valueList;
 
         public FetchCacheResult() {
+            status = new Status();
             valueList = Lists.newArrayList();
         }
 
-        public List<FetchCacheValue> getValueList() {
+        public List<CacheValue> getValueList(){
             return valueList;
         }
 
-        public void setValueList(List<FetchCacheValue> valueList) {
-            this.valueList = valueList;
-        }
-
-        //PRowBatch.tuple_data is the byte[] of TResultBatch serialize
-        public void setResult(PFetchCacheResult rpcResult) throws TException {
+        public void setResult(PFetchCacheResult rpcResult) {
             for (int i = 0; i < rpcResult.value.size(); i++) {
-                PFetchCacheValue rpcValue = rpcResult.value.get(i);
-                FetchCacheValue value = new FetchCacheValue();
-                value.setPartitionKey(rpcValue.partition_key);
-                if (i == rpcResult.value.size() - 1) {
-                    value.deserialize(rpcValue.row_batch.tuple_data, false);
-                } else {
-                    value.deserialize(rpcValue.row_batch.tuple_data, false);
-                }
+                PCacheValue rpcValue = rpcResult.value.get(i);
+                CacheValue value = new CacheValue();
+                value.addRpcResult(rpcValue);
                 valueList.add(value);
             }
         }
 
         public void Debug() {
             LOG.info("fetch cache result, value size:{}", valueList.size());
-            for (FetchCacheValue value : valueList) {
+            for (CacheValue value : valueList) {
                 value.Debug();
             }
         }
     }
 
     public void updateCache(UpdateCacheRequest request, Status status) {
-        PUniqueId sqlKey = request.getSqlKey();
+        PUniqueId sqlKey = request.sql_key;
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
         if (backend == null) {
             LOG.warn("update cache can't find backend, sqlKey:{}", sqlKey);
@@ -352,7 +250,7 @@ public class CacheProxy {
         try {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
             request.Debug();
-            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
+            Future<PCacheResponse> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
         } catch (RpcException e) {
             LOG.warn("update cache rpc exception, sqlKey:{}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
@@ -363,7 +261,7 @@ public class CacheProxy {
     }
 
     public FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status) {
-        PUniqueId sqlKey = request.getSqlKey();
+        PUniqueId sqlKey = request.sql_key;
         Backend backend = CachePartition.getInstance().findBackend(sqlKey);
         if (backend == null) {
             return null;
@@ -383,7 +281,7 @@ public class CacheProxy {
                     throw new TimeoutException("query cache timeout");
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                if (fetchResult.status != PCacheStatus.FETCH_SUCCESS) {
+                if (fetchResult.status != PCacheStatus.CACHE_OK) {
                     LOG.info("fetch catch null, status:{}", fetchResult.status);
                     return null;
                 }
@@ -403,9 +301,6 @@ public class CacheProxy {
         } catch (ExecutionException e) {
             LOG.warn("future get execution exception, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("execution exception");
-        } catch (TException e) {
-            LOG.warn("fetch result deserialize error, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
-            status.setStatus("deserialize error");
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, sqlKey:{}, backend:{}", sqlKey, backend.getId(), e);
             status.setStatus("query timeout");
@@ -414,7 +309,7 @@ public class CacheProxy {
         return result;
     }
 
-    public void clearCache(UpdateCacheRequest request, List<Backend> beList) {
+    public void clearCache(PClearCacheRequest request, List<Backend> beList) {
         int retry;
         for (Backend backend : beList) {
             retry = 1;
@@ -428,12 +323,12 @@ public class CacheProxy {
         }
     }
 
-    private boolean clearCache(UpdateCacheRequest request, Backend backend) {
+    private boolean clearCache(PClearCacheRequest request, Backend backend) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            PUpdateCacheRequest clearRequest = new PUpdateCacheRequest();
+            request.clear_type = 0;
             LOG.info("clear all backend cache, backendId:{}", backend.getId());
-            Future<PUpdateCacheResult> future = BackendServiceProxy.getInstance().clearCache(address, clearRequest);
+            Future<PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
             return true;
         } catch (RpcException e) {
             LOG.warn("clear cache rpc exception, backendId:{}", backend.getId(), e);

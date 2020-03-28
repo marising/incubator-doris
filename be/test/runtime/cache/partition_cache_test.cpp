@@ -26,12 +26,12 @@
 
 namespace doris {
 
-class ResultCacheTest : public testing::Test {
+class PartitionCacheTest : public testing::Test {
 public:
-    ResultCacheTest() {
+    PartitionCacheTest() {
 
     }
-    virtual ~ResultCacheTest() {
+    virtual ~PartitionCacheTest() {
 //        clear();
     }
 protected:
@@ -48,22 +48,26 @@ private:
     PCacheStatus init_batch_data(int sql_num, int part_begin, int part_num);
     ResultCache* _cache;
     PUpdateCacheRequest* _update_request;
-    PUpdateCacheResult* _update_response;
+    PCacheResponse* _update_response;
     PFetchCacheRequest* _fetch_request;
     PFetchCacheResult* _fetch_result;
+    PClearCacheRequest* _clear_request;
+    PCacheResponse* _clear_response;
 };
 
-void ResultCacheTest::init(int max_size, int ela_size){
+void PartitionCacheTest::init(int max_size, int ela_size){
     LOG(WARNING) << "init test\n";
     _cache = new ResultCache(max_size, ela_size);
     _update_request = new PUpdateCacheRequest();
-    _update_response = new PUpdateCacheResult();
+    _update_response = new PCacheResponse();
     _fetch_request = new PFetchCacheRequest();
     _fetch_result = new PFetchCacheResult();
+    _clear_request = new PClearCacheRequest();
+    _clear_response = new PCacheResponse();
 }
 
-void ResultCacheTest::clear(){
-    _cache->clear();    
+void PartitionCacheTest::clear(){
+    _cache->clear(_clear_request, _clear_response);    
     SAFE_DELETE(_cache);
     SAFE_DELETE(_update_request);
     SAFE_DELETE(_update_response);
@@ -76,29 +80,24 @@ void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo){
     sql_key->set_lo(lo);
 }
 
-PCacheStatus ResultCacheTest::init_batch_data(int sql_num, int part_begin, int part_num) {
+PCacheStatus PartitionCacheTest::init_batch_data(int sql_num, int part_begin, int part_num) {
     LOG(WARNING) << "init data, sql_num:" << sql_num << ",part_num:" << part_num;
     PUpdateCacheRequest* up_req = NULL;
-    PUpdateCacheResult* up_res = NULL;
+    PCacheResponse* up_res = NULL;
     PCacheStatus st = PCacheStatus::DEFAULT;
     for (int i = 1; i < sql_num + 1; i++) {
         LOG(WARNING) << "Sql:" << i;
         up_req = new PUpdateCacheRequest();
-        up_res = new PUpdateCacheResult();
+        up_res = new PCacheResponse();
         set_sql_key(up_req->mutable_sql_key(), i, i);
         //partition
         for (int j = part_begin; j < part_begin + part_num; j++) {
-            PUpdateCacheValue* value = up_req->add_value();
-            value->set_partition_key(j);
-            value->set_last_version(j);
-            value->set_last_version_time(j);
-            //row batch size
-            PRowBatch* batch = value->mutable_row_batch();
-            batch->set_num_rows(1);
-            batch->add_row_tuples(1);
-            batch->add_tuple_offsets(1);
-            batch->set_tuple_data("0123456789abcdef"); //16 byte
-            batch->set_is_compressed(false);
+            PCacheValue* value = up_req->add_value();
+            value->mutable_param()->set_partition_key(j);
+            value->mutable_param()->set_last_version(j);
+            value->mutable_param()->set_last_version_time(j);
+            value->set_data_size(16);
+            value->add_row("0123456789abcdef"); //16 byte
         }
         _cache->update(up_req, up_res);
         LOG(WARNING) << "finish update data";
@@ -109,56 +108,56 @@ PCacheStatus ResultCacheTest::init_batch_data(int sql_num, int part_begin, int p
     return st;
 }
 
-TEST_F(ResultCacheTest, update_data) {
+TEST_F(PartitionCacheTest, update_data) {
     init_default();
     PCacheStatus st = init_batch_data(1, 1, 1);
-    ASSERT_TRUE(st == PCacheStatus::UPDATE_SUCCESS);
+    ASSERT_TRUE(st == PCacheStatus::CACHE_OK);
     LOG(WARNING) << "clear cache";
     clear();
 }
 
-TEST_F(ResultCacheTest, update_over_partition) {
+TEST_F(PartitionCacheTest, update_over_partition) {
     init_default();
     PCacheStatus st = init_batch_data(1, 1, config::cache_max_partition_count+1);
     ASSERT_TRUE(st == PCacheStatus::PARAM_ERROR);
     clear();
 }
 
-TEST_F(ResultCacheTest, cache_clear) {
+TEST_F(PartitionCacheTest, cache_clear) {
     init_default();
     init_batch_data(1, 1, 1);
-    _cache->clear();
+    _cache->clear(_clear_request, _clear_response);
     ASSERT_EQ(_cache->get_cache_size(),0); 
 }
 
-TEST_F(ResultCacheTest, fetch_simple_data) {
+TEST_F(PartitionCacheTest, fetch_simple_data) {
     init_default();
     init_batch_data(1, 1, 1);
 
     LOG(WARNING) << "finish init\n";
     set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
+    PCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     p1->set_last_version(1);
     p1->set_last_version_time(1);
     LOG(WARNING) << "begin fetch\n";
     _cache->fetch(_fetch_request, _fetch_result);
     LOG(WARNING) << "finish fetch1\n";
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
     ASSERT_EQ(_fetch_result->value_size(), 1);
-    ASSERT_EQ(_fetch_result->value(0).row_batch().tuple_data(), "0123456789abcdef");
+    ASSERT_EQ(_fetch_result->value(0).row(0), "0123456789abcdef");
 
     LOG(WARNING) << "finish fetch2\n";
     clear();
     LOG(WARNING) << "finish fetch3\n";
 }
 
-TEST_F(ResultCacheTest, fetch_not_sqlid) {
+TEST_F(PartitionCacheTest, fetch_not_sqlid) {
     init_default();
     init_batch_data(1, 1, 1);
 
     set_sql_key(_fetch_request->mutable_sql_key(), 2, 2);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
+    PCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     p1->set_last_version(1);
     p1->set_last_version_time(1);
@@ -168,43 +167,43 @@ TEST_F(ResultCacheTest, fetch_not_sqlid) {
     clear();
 }
 
-TEST_F(ResultCacheTest, fetch_range_data) {
+TEST_F(PartitionCacheTest, fetch_range_data) {
     init_default();
     init_batch_data(1, 1, 3);
 
     set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
+    PCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(2);
     p1->set_last_version(2);
     p1->set_last_version_time(2);
-    PFetchCacheParam* p2 = _fetch_request->add_param();
+    PCacheParam* p2 = _fetch_request->add_param();
     p2->set_partition_key(3);
     p2->set_last_version(3);
     p2->set_last_version_time(3);
     _cache->fetch(_fetch_request, _fetch_result);
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::FETCH_SUCCESS);
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
     ASSERT_EQ(_fetch_result->value_size(), 2);
 
     clear();
 }
 
-TEST_F(ResultCacheTest, fetch_invalid_key_range) {
+TEST_F(PartitionCacheTest, fetch_invalid_key_range) {
     init_default();
     init_batch_data(1, 2, 1);
 
     set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
+    PCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     p1->set_last_version(1);
     p1->set_last_version_time(1);
     
-    PFetchCacheParam* p2 = _fetch_request->add_param();
+    PCacheParam* p2 = _fetch_request->add_param();
     p2->set_partition_key(2);
     p2->set_last_version(2);
     p2->set_last_version_time(2);
     
-    PFetchCacheParam* p3 = _fetch_request->add_param();
+    PCacheParam* p3 = _fetch_request->add_param();
     p3->set_partition_key(3);
     p3->set_last_version(3);
     p3->set_last_version_time(3);
@@ -214,12 +213,12 @@ TEST_F(ResultCacheTest, fetch_invalid_key_range) {
     clear();
 }
 
-TEST_F(ResultCacheTest, fetch_data_overdue) {
+TEST_F(PartitionCacheTest, fetch_data_overdue) {
     init_default();
     init_batch_data(1, 1, 1);
 
     set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
-    PFetchCacheParam* p1 = _fetch_request->add_param();
+    PCacheParam* p1 = _fetch_request->add_param();
     p1->set_partition_key(1);
     //cache version is 1, request version is 2
     p1->set_last_version(2);
@@ -232,9 +231,9 @@ TEST_F(ResultCacheTest, fetch_data_overdue) {
     clear();
 }
 
-TEST_F(ResultCacheTest, prune_data) {
+TEST_F(PartitionCacheTest, prune_data) {
     init(1,1);
-    init_batch_data(129, 1, 1024);                    // 16*256=4K*64*16 = 2M
+    init_batch_data(129, 1, 1024);                    // 16*1024*128=2M
     ASSERT_LE(_cache->get_cache_size(), 1*1024*1024);   //cache_size <= 1M
 }
 

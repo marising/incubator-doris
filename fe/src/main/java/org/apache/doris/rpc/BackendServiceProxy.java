@@ -28,9 +28,10 @@ import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PUpdateCacheResult;
+import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PFetchCacheRequest;
 import org.apache.doris.proto.PFetchCacheResult;
+import org.apache.doris.proto.PClearCacheRequest;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
@@ -160,7 +161,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PUpdateCacheResult> updateCache(
+    public Future<PCacheResponse> updateCache(
             TNetworkAddress address, PUpdateCacheRequest request) throws RpcException{
         try {
             PBackendService service = getProxy(address);
@@ -184,8 +185,8 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<PUpdateCacheResult> clearCache(
-            TNetworkAddress address, PUpdateCacheRequest request) throws RpcException {
+    public Future<PCacheResponse> clearCache(
+            TNetworkAddress address, PClearCacheRequest request) throws RpcException {
         try {
             PBackendService service = getProxy(address);
             return service.clearCache(request);

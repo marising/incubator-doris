@@ -94,10 +94,10 @@ public:
 	virtual ~ResultCache() {
 	}
 
-	void update(const PUpdateCacheRequest* request, PUpdateCacheResult* response);
+	void update(const PUpdateCacheRequest* request, PCacheResponse* response);
 	void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
 	bool contains(const UniqueId& sql_key);
-	void clear();
+	void clear(const PClearCacheRequest* request, PCacheResponse* response);
 
 	size_t get_cache_size(){
 		return _cache_size;

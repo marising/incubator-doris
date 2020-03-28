@@ -25,39 +25,35 @@ bool compare_partition(const PartitionRowBatch* left_node, const PartitionRowBat
 }
 
 //return new batch size,only include the size of PRowBatch
-void PartitionRowBatch::set_row_batch(const int64& last_version, const long& last_version_time, 
-    const PRowBatch* prow_batch) {
-	if (prow_batch == NULL) {
-        LOG(WARNING) << "set null row batch";
-        return;  
-	} 
-    if (!_cache_stat.check_newer(last_version, last_version_time)) {
-        LOG(WARNING) << "set old version data, cache ver:" << _cache_stat.last_version 
-                     << ",cache time:" << _cache_stat.last_version_time
-                     << ", setdata ver:" << last_version
-                     << ",setdata time:" << last_version_time;
-        return;  
+void PartitionRowBatch::set_row_batch(const PCacheValue& value) {
+    if (_cache_value != NULL && !check_newer(value.param())) {
+        LOG(WARNING) << "set old version data, cache ver:" << _cache_value->param().last_version() 
+                     << ",cache time:" << _cache_value->param().last_version_time()
+                     << ", setdata ver:" << value.param().last_version()
+                     << ",setdata time:" << value.param().last_version_time();
+        return;
     }
-
-    SAFE_DELETE(_prow_batch);
-    _prow_batch = new PRowBatch(*prow_batch);
-	_cache_stat.set_update(last_version, last_version_time);
-	_data_size = RowBatch::get_batch_size(*_prow_batch);
-    LOG(INFO) << "finish set row batch, row num:" << prow_batch->num_rows() << ", data size:" << _data_size;
+    SAFE_DELETE(_cache_value);
+    _cache_value = new PCacheValue(value);
+    _data_size += _cache_value->data_size();
+    _cache_stat.update();
+    LOG(INFO) << "finish set row batch, row num:" << _cache_value->row_size() << ", data size:" << _data_size;
 }
 
-bool PartitionRowBatch::is_hit_cache(const int64& partition_key, const int64& last_version, 
-    const long& last_version_time) {
-
-	if (partition_key != _partition_key) return false;
-    if (!_cache_stat.check_match(last_version, last_version_time)) return false;
-    _cache_stat.set_read();
+bool PartitionRowBatch::is_hit_cache(const PCacheParam& param) {
+	if (param.partition_key() != _partition_key) {
+        return false;
+    }
+    if (!check_match(param)) {
+        return false;
+    }
+    _cache_stat.query();
 	return true;
 }
 
 void PartitionRowBatch::clear() {
     LOG(INFO) << "clear partition rowbatch.";
-    SAFE_DELETE(_prow_batch);
+    SAFE_DELETE(_cache_value);
 	_partition_key = 0;
 	_data_size = 0;
     _cache_stat.init();
@@ -87,15 +83,15 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
     }
     PartitionRowBatch* partition = NULL;
 	for (int i = 0; i < request->value_size(); i++) {
-        const PUpdateCacheValue& value= request->value(i);
-        int64 partition_key = value.partition_key();
+        const PCacheValue& value= request->value(i);
+        int64 partition_key = value.param().partition_key();
         if (!update_first && partition_key <= first_key) {
             update_first = true;
         }
         auto it = _partition_map.find(partition_key);
         if (it == _partition_map.end()) {
 	        partition = new PartitionRowBatch(partition_key); 
-            partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
+            partition->set_row_batch(value);
             _partition_map[partition_key] = partition;
 			_partition_list.push_back(partition);
  #ifdef PARTITION_CACHE_DEV
@@ -107,7 +103,7 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
         } else {
             partition = it->second;
             _data_size -= partition->get_data_size(); 
-            partition->set_row_batch(value.last_version(), value.last_version_time(), &value.row_batch());
+            partition->set_row_batch(value);
 #ifdef PARTITION_CACHE_DEV                      
             LOG(INFO) << "update index:" << i
                 << ", pkey:" << partition->get_partition_key() 
@@ -125,7 +121,7 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
            break;
        }
     }
-    return PCacheStatus::UPDATE_SUCCESS;
+    return PCacheStatus::CACHE_OK;
 }
 
 /*
@@ -178,9 +174,7 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
                 << ", param part Key : "<< request->param(param_idx).partition_key()
                 << ", batch part key : " << (*part_it)->get_partition_key();
  #endif
-            if ((*part_it)->is_hit_cache(request->param(param_idx).partition_key(), 
-                    request->param(param_idx).last_version(), 
-                    request->param(param_idx).last_version_time())) {
+            if ((*part_it)->is_hit_cache(request->param(param_idx))) {
                 if (begin_idx < 0) {
                     begin_idx = param_idx;
                     begin_it = part_it;
@@ -196,7 +190,7 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
     }
 
     if (begin_it == _partition_list.end() && end_it == _partition_list.end()) {
-        return PCacheStatus::FETCH_SUCCESS;
+        return PCacheStatus::CACHE_OK;
     }
  
     //[20191210 - 20191216] hit partition range [20191212-20191214],the sql will be splited to 3 part!
@@ -213,7 +207,7 @@ PCacheStatus ResultNode::get_partition(const PFetchCacheRequest* request, Partit
         }
         begin_it++;
     }
-    return PCacheStatus::FETCH_SUCCESS;
+    return PCacheStatus::CACHE_OK;
 }
 
 /*

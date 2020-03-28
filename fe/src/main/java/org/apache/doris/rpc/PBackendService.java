@@ -25,7 +25,8 @@ import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PUpdateCacheResult;
+import org.apache.doris.proto.PClearCacheRequest;
+import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PFetchCacheRequest;
 import org.apache.doris.proto.PFetchCacheResult;
 
@@ -48,13 +49,13 @@ public interface PBackendService {
     Future<PFetchDataResult> fetchDataAsync(PFetchDataRequest request);
 
     @ProtobufRPC(serviceName = "PBackendService", methodName = "update_cache", onceTalkTimeout = 10000)
-    Future<PUpdateCacheResult>  updateCache(PUpdateCacheRequest request);
+    Future<PCacheResponse>  updateCache(PUpdateCacheRequest request);
 
     @ProtobufRPC(serviceName = "PBackendService", methodName = "fetch_cache", onceTalkTimeout = 10000)
     Future<PFetchCacheResult> fetchCache(PFetchCacheRequest request);
 
     @ProtobufRPC(serviceName = "PBackendService", methodName = "clear_cache", onceTalkTimeout = 10000)
-    Future<PUpdateCacheResult> clearCache(PUpdateCacheRequest request);
+    Future<PCacheResponse> clearCache(PClearCacheRequest request);
 
     @ProtobufRPC(serviceName = "PBackendService", methodName = "trigger_profile_report",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)

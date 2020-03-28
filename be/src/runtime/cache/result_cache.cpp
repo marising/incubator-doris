@@ -68,7 +68,7 @@ void ResultNodeList::clear() {
     _node_count = 0;
 }
 
-void ResultCache::update(const PUpdateCacheRequest* request, PUpdateCacheResult* response) { 
+void ResultCache::update(const PUpdateCacheRequest* request, PCacheResponse* response) { 
     ResultNode* node;
     PCacheStatus status;
     bool update_first = false;
@@ -117,13 +117,11 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
         _node_list.move_tail(it->second);
     }
     for(auto it = part_rowbatch_list.begin(); it != part_rowbatch_list.end(); it++) {
-        PRowBatch* srcRow = (*it)->get_row_batch();
-        if (srcRow != NULL) {
-            PFetchCacheValue* value = result->add_value();
-            value->set_partition_key((*it)->get_partition_key());
-            PRowBatch* row = value->mutable_row_batch();
-            row->CopyFrom(*srcRow);
-            LOG(INFO) << "fetch partition key:" << (*it)->get_partition_key();
+        PCacheValue* srcValue = (*it)->get_value();
+        if (srcValue != NULL) {
+            PCacheValue* value = result->add_value();
+            value->CopyFrom(*srcValue);
+            LOG(INFO) << "fetch partition key:" << srcValue->param().partition_key();
         } else {
             LOG(WARNING) << "prowbatch of cache is null";
             status = PCacheStatus::EMPTY_DATA;
@@ -138,16 +136,25 @@ bool ResultCache::contains(const UniqueId& sql_key) {
     return _node_map.find(sql_key) != _node_map.end();
 }
 
-void ResultCache::clear(){
-    LOG(INFO) << "clear cache, node size:" << _node_list.get_node_count()
+void ResultCache::clear(const PClearCacheRequest* request, PCacheResponse* response){
+    LOG(INFO) << "clear cache type" << request->clear_type() << ", node size:" << _node_list.get_node_count()
         << ", map size:" << _node_map.size();
     CacheWriteLock write_lock(_cache_mtx);
-    _node_list.clear();
-    _node_map.clear();
-    _cache_size = 0;
-    _node_count = 0;
-    _partition_count = 0;
+    //0 clear, 1 prune, 2 before_time,3 sql_key
+    switch( request->clear_type() ){
+        case 0:
+            _node_list.clear();
+            _node_map.clear();
+            _cache_size = 0;
+            _node_count = 0;
+            _partition_count = 0;
+        case 1:
+            prune();
+        default:
+            break;
+    }
     update_monitor();
+    response->set_status(PCacheStatus::CACHE_OK);
 }
 
 //private method
