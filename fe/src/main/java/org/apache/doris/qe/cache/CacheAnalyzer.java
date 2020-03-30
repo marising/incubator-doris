@@ -117,16 +117,20 @@ public class CacheAnalyzer {
 
     public class CacheTable {
         public OlapTable olapTable;
-        public long lastestKey;
-        public long lastestVersion;
-        public long lastestTime;
+        public long latestKey;
+        public long latestVersion;
+        public long latestTime;
 
         public CacheTable() {
             olapTable = null;
-            lastestKey = 0;
-            lastestVersion = 0;
-            lastestTime = 0;
+            latestKey = 0;
+            latestVersion = 0;
+            latestTime = 0;
         }
+
+        public void Debug() {
+            LOG.info("partition key:{},ver:{},time:{}", latestKey, latestVersion, latestTime);
+        }    
     }
 
     /**
@@ -161,20 +165,23 @@ public class CacheAnalyzer {
             OlapScanNode oNode = (OlapScanNode) node;
             OlapTable oTable = oNode.getOlapTable();
             CacheTable cTable = getLastUpdateTime(oTable);
-            tblTimeList.add(new Pair<Long, CacheTable>(cTable.lastestTime, cTable));
+            tblTimeList.add(new Pair<Long, CacheTable>(cTable.latestTime, cTable));
         }
 
         Collections.sort(tblTimeList, Collections.reverseOrder());
         latestTable = tblTimeList.get(0).second;
+        latestTable.Debug();
+
         if (now == 0) {
             now = nowtime();
         }
         if (Config.enable_sql_cache &&
-                (now - latestTable.lastestTime) >= Config.last_version_interval_second * 1000) {
+                (now - latestTable.latestTime) >= Config.last_version_interval_second * 1000) {
             return CacheModel.Sql;
         }
 
         if (!Config.enable_partition_cache) {
+            LOG.info("enable partition cache is false.");
             return CacheModel.None;
         }
 
@@ -182,32 +189,33 @@ public class CacheAnalyzer {
         //Only one table can be updated in Config.last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
             if ((now - tblTimeList.get(i).first) < Config.last_version_interval_second * 1000) {
+                LOG.info("The time of other tables is newer than {}", Config.last_version_interval_second);
                 return CacheModel.None;
             }
         }
         olapTable = latestTable.olapTable;
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
-            LOG.debug("the partition of OlapTable not RANGE Type.");
+            LOG.info("the partition of OlapTable not RANGE Type.");
             return CacheModel.None;
         }
         partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.debug("size of columns for partition key {}", columns.size());
+            LOG.info("size of columns for partition key {}", columns.size());
             return CacheModel.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("not group by partition key, key:{}",partColumn.getName());
+            LOG.info("not group by partition key, key:{}",partColumn.getName());
             return CacheModel.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.debug("the predicate size include partition key has {}.", compoundPredicates.size());
+            LOG.info("the predicate size include partition key has {}.", compoundPredicates.size());
             return CacheModel.None;
         }
         partitionKeyPredicate = compoundPredicates.get(0);
@@ -217,8 +225,8 @@ public class CacheAnalyzer {
     public CacheProxy.FetchCacheResult getCache() {
         cacheResult = null;
         cacheModel = checkCacheModel(0);
+        LOG.info("cache model:{}, stmtid:{}", cacheModel, stmtId);
         if (cacheModel == CacheModel.None) {
-            LOG.info("none cache, model:{}, stmtid:{}", cacheModel, stmtId);
             return cacheResult;
         }
         CachePartition cachePart = CachePartition.getInstance();
@@ -227,8 +235,8 @@ public class CacheAnalyzer {
         Status status = new Status();
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
-            request.addParam(latestTable.lastestKey, latestTable.lastestVersion,
-                    latestTable.lastestTime);
+            request.addParam(latestTable.latestKey, latestTable.latestVersion,
+                    latestTable.latestTime);
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch sql cache, msg:{}", status.getErrorMsg());
             if (status.ok() && cacheResult != null) {
@@ -296,8 +304,8 @@ public class CacheAnalyzer {
         }
 
         if (cacheModel == CacheModel.Sql) {
-            rowBatchBuilder.buildSqlUpdateRequest(parsedStmt.toSql(), latestTable.lastestKey,
-                    latestTable.lastestVersion, latestTable.lastestTime);
+            rowBatchBuilder.buildSqlUpdateRequest(parsedStmt.toSql(), latestTable.latestKey,
+                    latestTable.latestVersion, latestTable.latestTime);
         } else if (cacheModel == CacheModel.Partition) {
             rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
         }
@@ -482,10 +490,11 @@ public class CacheAnalyzer {
         CacheTable table = new CacheTable();
         table.olapTable = olapTable;
         for (Partition partition : olapTable.getPartitions()) {
-            if (partition.getVisibleVersionTime() > table.lastestTime) {
-                table.lastestKey = partition.getId();
-                table.lastestTime = partition.getVisibleVersionTime();
-                table.lastestVersion = partition.getVisibleVersion();
+            if (partition.getVisibleVersionTime() >= table.latestTime &&
+                partition.getVisibleVersion() > table.latestVersion) {
+                table.latestKey = partition.getId();
+                table.latestTime = partition.getVisibleVersionTime();
+                table.latestVersion = partition.getVisibleVersion();
             }
         }
         return table;
