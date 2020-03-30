@@ -93,14 +93,6 @@ public class RowBatchBuilder {
         int packet_seq = 0;
         for (RowBatch batch : rowBatchList) {
             TResultBatch result = new TResultBatch();
-//            result.setRows(batch.getBatch().getRows());
-//            result.setPacket_seq(packet_seq);
-//            packet_seq ++;
-//            result.setIs_compressed(false);
-//            LOG.info("result is_compressed:{}, packet_seq:{}, row_size:{}",
-//                    result.isIs_compressed(),
-//                    result.getPacket_seq(),
-//                    result.getRowsSize());
             updateRequest.addValue(0, 0, lastestTime, batch.getBatch());
         }
         LOG.info("build sql update request, sql_key:{}, batch size:{}, packet num:{}",

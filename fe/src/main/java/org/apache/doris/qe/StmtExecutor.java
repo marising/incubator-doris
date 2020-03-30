@@ -592,13 +592,13 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
+                    cacheAnalyzer.appendRowBatch(batch);
                     CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }
                     CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    cacheAnalyzer.appendRowBatch(batch);
                 }
                 if (batch.isEos()) {
                     break;
