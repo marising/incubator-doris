@@ -204,6 +204,7 @@ public class CacheAnalyzer {
         cacheResult = null;
         cacheModel = checkCacheModel(0);
         if (cacheModel == CacheModel.None) {
+            LOG.info("none cache, model:{}, stmtid:{}", cacheModel, stmtId);
             return cacheResult;
         }
         CachePartition cachePart = CachePartition.getInstance();
@@ -246,11 +247,11 @@ public class CacheAnalyzer {
                 MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
             }
         }
-
+        
         if( status.ok() && cacheResult != null) {
-            LOG.info("hit cache model:{}, stmtid:{}",cacheModel, stmtId);
+            LOG.info("hit cache, model:{}, stmtid:{}",cacheModel, stmtId);
         } else {
-            LOG.info("miss cache model:{}, stmtid:{}, msg:{}", cacheModel, stmtId, status.getErrorMsg());
+            LOG.info("miss cache, model:{}, stmtid:{}, err msg:{}", cacheModel, stmtId, status.getErrorMsg());
             cacheResult = null;
         }
         return cacheResult;
@@ -258,6 +259,9 @@ public class CacheAnalyzer {
 
     //Append rowBatch to list,then updateCache
     public void copyRowBatch(RowBatch rowBatch) {
+        if (cacheModel == CacheModel.None) {
+            return;
+        }
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(cacheModel);
             rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
@@ -267,6 +271,9 @@ public class CacheAnalyzer {
     }
 
     public void updateCache() {
+        if (cacheModel == CacheModel.None) {
+            return;
+        }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
             LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
                     Config.cache_result_max_row_count);

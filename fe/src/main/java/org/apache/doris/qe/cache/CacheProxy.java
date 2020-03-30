@@ -103,12 +103,17 @@ public class CacheProxy {
 
         public void addRpcResult(PCacheValue value) {
             param = new CacheParam(value.param);
-            for (byte[] one : value.row) {
-                resultBatch.addToRows(ByteBuffer.wrap(one));
-            }
+            //for (byte[] one : value.row) {
+            //    resultBatch.addToRows(ByteBuffer.wrap(one));
+            //}
+            data_size += value.data_size;
+            row.addAll(value.row);
         }
 
         public RowBatch getRowBatch() {
+            for (byte[] one : row) {
+                resultBatch.addToRows(ByteBuffer.wrap(one));
+            }
             RowBatch batch = new RowBatch();
             resultBatch.setPacket_seq(1);
             resultBatch.setIs_compressed(false);
