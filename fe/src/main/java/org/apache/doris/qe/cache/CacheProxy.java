@@ -53,16 +53,14 @@ import java.util.List;
 public class CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheProxy.class);
    
-    public static void DebugTResultBatch(TResultBatch batch,String tag){
+    public static void DebugTResultBatch(TResultBatch batch,String tag) {
         int idx = 0;
         LOG.info("TAG:{}", tag);
-        for(ByteBuffer row : batch.getRows()){
-            idx ++;
-            LOG.info("idx:{}, pos:{}, remain:{}, limit:{}, capacity:{}", idx, row.position(), row.remaining(),
-                    row.limit(), row.capacity());
-//            String str = new String(row.array(),row.position(),row.limit());
+        for (ByteBuffer row : batch.getRows()) {
+            idx++;
             byte[] bytes = Arrays.copyOfRange(row.array(), row.position(), row.limit());
-            LOG.info("str:{}", bytes.toString());
+            LOG.info("idx:{}, pos:{}, remain:{}, limit:{}, capacity:{},str:{}", idx, row.position(), row.remaining(),
+                    row.limit(), row.capacity(), bytes.toString());
         }
     }
 
@@ -123,7 +121,6 @@ public class CacheProxy {
             param = new CacheParam(partitionKey, lastVersion, lastVersionTime);
             for (byte[] buf : rowList) {
                 data_size += buf.length;
-//                byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
                 row.add(buf);
             }
         }
@@ -136,18 +133,8 @@ public class CacheProxy {
             return value;
         }
 
-        public void DebugFetch(){
-            LOG.info("fetch cache value, partkey:{}, ver:{}, time:{}, row_num:{}, data_size:{}",
-                    param.partition_key, param.last_version, param.last_version_time,
-                    row.size(),
-                    data_size);
-            for(int i = 0; i < row.size(); i++) {
-                LOG.info("{}:{}", i, row.get(i).toString());
-            }
-        }
-
-        public void DebugUpdate() {
-            LOG.info("update cache value, partkey:{}, ver:{}, time:{}, row_num:{}, data_size:{}",
+        public void Debug() {
+            LOG.info("cache value, partkey:{}, ver:{}, time:{}, row_num:{}, data_size:{}",
                     param.partition_key, param.last_version, param.last_version_time,
                     row.size(),
                     data_size);
@@ -187,7 +174,7 @@ public class CacheProxy {
             LOG.info("update cache request, sql_key:{}, value_size:{}", DebugUtil.printId(sql_key),
                     valueList.size());
             for (CacheValue value : valueList) {
-                value.DebugUpdate();
+                value.Debug();
             }
         }
     }
@@ -245,13 +232,14 @@ public class CacheProxy {
                 CacheValue value = new CacheValue();
                 value.addRpcResult(rpcValue);
                 valueList.add(value);
+                LOG.info("fetch cache, row:{}, size:{}", i, rpcValue.data_size);
             }
         }
 
         public void Debug() {
             LOG.info("fetch cache result, value size:{}", valueList.size());
             for (CacheValue value : valueList) {
-                value.DebugFetch();
+                value.Debug();
             }
         }
     }
@@ -303,7 +291,6 @@ public class CacheProxy {
                 }
                 result = new FetchCacheResult();
                 result.setResult(fetchResult);
-                //Debug result info
                 result.Debug();
                 return result;
             }

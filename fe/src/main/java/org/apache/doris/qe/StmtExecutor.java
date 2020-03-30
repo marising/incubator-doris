@@ -544,14 +544,14 @@ public class StmtExecutor {
             handleExplainStmt(explainString);
             return;
         }
-        
+
         // if python's MysqlDb get error after sendfields, it can't catch the excpetion
         // so We need to send fields after first batch arrived
 
         //Get result
         RowBatch batch = null;
         MysqlChannel channel = context.getMysqlChannel();
-        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());        
+        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
 
         //Get rowbatch from cache
         if (Config.enable_sql_cache || Config.enable_partition_cache) {
@@ -559,22 +559,18 @@ public class StmtExecutor {
             CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
             CacheModel model = cacheAnalyzer.getCacheModel();
             if (cacheResult != null) {
-                int row_idx = 0;
-		        for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
+                for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
-                        row_idx ++;
                         channel.sendOnePacket(row);
-                        LOG.info("send channel row:{}",row_idx);
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (model == CacheModel.Sql) {
                     if (batch != null) {
                         statisticsForAuditLog = batch.getQueryStatistics();
-                    } 
+                    }
                     context.getState().setEof();
-                    LOG.info("set eof");
                     return;
                 }
                 if (model == CacheModel.Partition) {
@@ -583,21 +579,19 @@ public class StmtExecutor {
                     planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
                 }
             }
-             
+
             coord = new Coordinator(context, analyzer, planner);
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt, coord));
             coord.exec();
-            
+
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
                     cacheAnalyzer.copyRowBatch(batch);
-                    CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }
-                    CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (batch.isEos()) {
@@ -608,21 +602,19 @@ public class StmtExecutor {
         } else {
             coord = new Coordinator(context, analyzer, planner);
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+                    new QeProcessorImpl.QueryInfo(context, originStmt, coord));
             coord.exec();
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
-                    CacheProxy.DebugTResultBatch( batch.getBatch(), "NormalQuery");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
-                    }            
-                    CacheProxy.DebugTResultBatch( batch.getBatch(), "NormalQuery");
-                    context.updateReturnRows(batch.getBatch().getRows().size());    
+                    }
+                    context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (batch.isEos()) {
                     break;
-                }        
+                }
             }
         }
         statisticsForAuditLog = batch.getQueryStatistics();
