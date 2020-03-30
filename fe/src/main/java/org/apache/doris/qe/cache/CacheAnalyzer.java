@@ -63,7 +63,7 @@ public class CacheAnalyzer {
     private long stmtId;
     private String sqlKey;
     private CacheModel cacheModel;
-    private long lastestTime;
+    private CacheTable latestTable;
     private CacheProxy.FetchCacheResult cacheResult;
     private StatementBase parsedStmt;
     //normal sql
@@ -73,7 +73,7 @@ public class CacheAnalyzer {
     //rewrite sql
     private SelectStmt rewriteStmt;
     private List<ScanNode> scanNodes;
-    private OlapScanNode olapNode;
+    //private OlapScanNode olapNode;
     private OlapTable olapTable;
     private RangePartitionInfo partitionInfo;
     private Column partColumn;
@@ -87,7 +87,7 @@ public class CacheAnalyzer {
         scanNodes = planner.getScanNodes();
         cacheResult = null;
         stmtId = context.getStmtId();
-        lastestTime = 0;
+        latestTable = new CacheTable();
     }
 
     public CacheAnalyzer(StatementBase parsedStmt, List<ScanNode> scanNodes) {
@@ -115,6 +115,20 @@ public class CacheAnalyzer {
         return rewriteStmt;
     }
 
+    public class CacheTable {
+        public OlapTable olapTable;
+        public long lastestKey;
+        public long lastestVersion;
+        public long lastestTime;
+
+        public CacheTable() {
+            olapTable = null;
+            lastestKey = 0;
+            lastestVersion = 0;
+            lastestTime = 0;
+        }
+    }
+
     /**
      * Check cache mode with SQL and table
      * 1、Only Olap table
@@ -138,7 +152,7 @@ public class CacheAnalyzer {
         }
         this.selectStmt = (SelectStmt) parsedStmt;
         //Check the last version time of the table
-        List<Pair<Long, Integer>> tblTimeList = Lists.newArrayList();
+        List<Pair<Long, CacheTable>> tblTimeList = Lists.newArrayList();
         for (int i = 0; i < scanNodes.size(); i++) {
             ScanNode node = scanNodes.get(i);
             if (!(node instanceof OlapScanNode)) {
@@ -146,16 +160,17 @@ public class CacheAnalyzer {
             }
             OlapScanNode oNode = (OlapScanNode) node;
             OlapTable oTable = oNode.getOlapTable();
-            long maxTime = getLastUpdateTime(oTable);
-            tblTimeList.add(new Pair<Long, Integer>(maxTime, i));
+            CacheTable cTable = getLastUpdateTime(oTable);
+            tblTimeList.add(new Pair<Long, CacheTable>(cTable.lastestTime, cTable));
         }
+
         Collections.sort(tblTimeList, Collections.reverseOrder());
-        lastestTime = tblTimeList.get(0).first;
+        latestTable = tblTimeList.get(0).second;
         if (now == 0) {
             now = nowtime();
         }
         if (Config.enable_sql_cache &&
-                (now - lastestTime) >= Config.last_version_interval_second * 1000) {
+                (now - latestTable.lastestTime) >= Config.last_version_interval_second * 1000) {
             return CacheModel.Sql;
         }
 
@@ -170,8 +185,7 @@ public class CacheAnalyzer {
                 return CacheModel.None;
             }
         }
-        olapNode = (OlapScanNode) scanNodes.get(tblTimeList.get(0).second);
-        olapTable = olapNode.getOlapTable();
+        olapTable = latestTable.olapTable;
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
             LOG.debug("the partition of OlapTable not RANGE Type.");
             return CacheModel.None;
@@ -213,7 +227,8 @@ public class CacheAnalyzer {
         Status status = new Status();
         if (cacheModel == CacheModel.Sql) {
             request = new CacheProxy.FetchCacheRequest(parsedStmt.toSql());
-            request.addParam(0, 0, lastestTime);
+            request.addParam(latestTable.lastestKey, latestTable.lastestVersion,
+                    latestTable.lastestTime);
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch sql cache, msg:{}", status.getErrorMsg());
             if (status.ok() && cacheResult != null) {
@@ -222,12 +237,12 @@ public class CacheAnalyzer {
         } else if (cacheModel == CacheModel.Partition) {
             rewriteSelectStmt(null);
             request = new CacheProxy.FetchCacheRequest(nokeyStmt.toSql());
-            range = new PartitionRange(this.partitionKeyPredicate, this.olapTable, 
-                                        this.partitionInfo);
+            range = new PartitionRange(this.partitionKeyPredicate, this.olapTable,
+                    this.partitionInfo);
             if (!range.analytics()) {
                 return cacheResult;
             }
-            
+
             for (PartitionRange.PartitionSingle single : range.getSingleList()) {
                 request.addParam(single.getPartitionKey(),
                         single.getPartition().getVisibleVersion(),
@@ -236,7 +251,7 @@ public class CacheAnalyzer {
             }
             cacheResult = proxy.fetchCache(request, 10000, status);
             LOG.info("fetch partition cache, ms:{}", status.getErrorMsg());
-            for(CacheProxy.CacheValue value :cacheResult.getValueList()) {
+            for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                 range.setCacheFlag(value.param.partition_key);
             }
             newRangeList = range.newPartitionRange();
@@ -247,9 +262,9 @@ public class CacheAnalyzer {
                 MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
             }
         }
-        
-        if( status.ok() && cacheResult != null) {
-            LOG.info("hit cache, model:{}, stmtid:{}",cacheModel, stmtId);
+
+        if (status.ok() && cacheResult != null) {
+            LOG.info("hit cache, model:{}, stmtid:{}", cacheModel, stmtId);
         } else {
             LOG.info("miss cache, model:{}, stmtid:{}, err msg:{}", cacheModel, stmtId, status.getErrorMsg());
             cacheResult = null;
@@ -275,20 +290,21 @@ public class CacheAnalyzer {
             return;
         }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize() ,
+            LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
                     Config.cache_result_max_row_count);
             return;
         }
 
-        if( cacheModel == CacheModel.Sql) {
-            rowBatchBuilder.buildSqlUpdateRequest(parsedStmt.toSql(), lastestTime);
-        }else if( cacheModel == CacheModel.Partition){
+        if (cacheModel == CacheModel.Sql) {
+            rowBatchBuilder.buildSqlUpdateRequest(parsedStmt.toSql(), latestTable.lastestKey,
+                    latestTable.lastestVersion, latestTable.lastestTime);
+        } else if (cacheModel == CacheModel.Partition) {
             rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
         }
         CacheProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.getUpdateRequest();
         CacheProxy proxy = new CacheProxy();
         Status status = new Status();
-        proxy.updateCache(updateRequest,status);
+        proxy.updateCache(updateRequest, status);
         LOG.info("update cache model:{}, stmtid:{}, ", cacheModel, stmtId);
     }
 
@@ -462,14 +478,17 @@ public class CacheAnalyzer {
         }
     }
 
-    private long getLastUpdateTime(OlapTable olapTable) {
-        long maxTime = 0;
-        for(Partition partition : olapTable.getPartitions()){
-            if( partition.getVisibleVersionTime() > maxTime ){
-                maxTime = partition.getVisibleVersionTime();
+    private CacheTable getLastUpdateTime(OlapTable olapTable) {
+        CacheTable table = new CacheTable();
+        table.olapTable = olapTable;
+        for (Partition partition : olapTable.getPartitions()) {
+            if (partition.getVisibleVersionTime() > table.lastestTime) {
+                table.lastestKey = partition.getId();
+                table.lastestTime = partition.getVisibleVersionTime();
+                table.lastestVersion = partition.getVisibleVersion();
             }
         }
-        return maxTime;
+        return table;
     }
     
     public PartitionRange getPartitionRange() {

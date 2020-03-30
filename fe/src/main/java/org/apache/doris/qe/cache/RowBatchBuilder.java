@@ -91,11 +91,11 @@ public class RowBatchBuilder {
         }
     }
 
-    public void buildSqlUpdateRequest(String sql, long lastestTime) {
+    public void buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {
             updateRequest = new CacheProxy.UpdateCacheRequest(sql);
         }
-        updateRequest.addValue(0, 0, lastestTime, rowList);
+        updateRequest.addValue(partitionKey, lastVersion, lastestTime, rowList);
         LOG.info("build sql update request, sql_key:{}, batch:{}, row:{}, data:{}",
                 DebugUtil.printId(updateRequest.sql_key),
                 batchSize, rowSize, dataSize);
