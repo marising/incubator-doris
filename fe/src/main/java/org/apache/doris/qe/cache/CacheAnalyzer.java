@@ -256,16 +256,14 @@ public class CacheAnalyzer {
         return cacheResult;
     }
 
-
-
     //Append rowBatch to list,then updateCache
-    public void appendRowBatch(RowBatch rowBatch) {
+    public void copyRowBatch(RowBatch rowBatch) {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(cacheModel);
             rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
                     partColumn, newRangeList);
         }
-        rowBatchBuilder.appendRowBatch(rowBatch);
+        rowBatchBuilder.copyRowData(rowBatch);
     }
 
     public void updateCache() {

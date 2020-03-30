@@ -592,7 +592,7 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
-                    cacheAnalyzer.appendRowBatch(batch);
+                    cacheAnalyzer.copyRowBatch(batch);
                     CacheProxy.DebugTResultBatch( batch.getBatch(), "AfterCache");
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);

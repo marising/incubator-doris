@@ -119,12 +119,12 @@ public class CacheProxy {
             return batch;
         }
 
-        public void addThriftResult(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
+        public void addUpdateResult(long partitionKey, long lastVersion, long lastVersionTime, List<byte[]> rowList) {
             param = new CacheParam(partitionKey, lastVersion, lastVersionTime);
-            for (ByteBuffer buf : resultBatch.getRows()) {
-                data_size += buf.remaining();
-                byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
-                row.add(bytes);
+            for (byte[] buf : rowList) {
+                data_size += buf.length;
+//                byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
+                row.add(buf);
             }
         }
 
@@ -167,9 +167,9 @@ public class CacheProxy {
             this.valueList = Lists.newArrayList();
         }
 
-        public void addValue(long partitionKey, long lastVersion, long lastVersionTime, TResultBatch resultBatch) {
+        public void addValue(long partitionKey, long lastVersion, long lastVersionTime, List<byte[]> rowList) {
             CacheValue value = new CacheValue();
-            value.addThriftResult(partitionKey, lastVersion, lastVersionTime, resultBatch);
+            value.addUpdateResult(partitionKey, lastVersion, lastVersionTime, rowList);
             valueList.add(value);
         }
 

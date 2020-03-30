@@ -26,10 +26,9 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.doris.thrift.TResultBatch;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
@@ -41,8 +40,10 @@ public class RowBatchBuilder {
     private int begin;
     private Type keyType;
     private HashMap<Long, PartitionRange.PartitionSingle> partMap;
-    private List<RowBatch> rowBatchList;
+    private List<byte[]> rowList;
+    private int batchSize;
     private int rowSize;
+    private int dataSize;
 
     public int getRowSize() { return rowSize; }
 
@@ -50,8 +51,11 @@ public class RowBatchBuilder {
         cacheModel = model;
         begin = 0;
         keyType = Type.INVALID;
-        rowBatchList = Lists.newArrayList();
+        rowList = Lists.newArrayList();
         partMap = new HashMap<>();
+        batchSize = 0;
+        rowSize = 0;
+        dataSize = 0;
     }
 
     public void partitionIndex(ArrayList<Expr> resultExpr,
@@ -76,28 +80,25 @@ public class RowBatchBuilder {
                 begin, partMap.size());
     }
 
-    public void appendRowBatch(RowBatch rowBatch) {
+    public void copyRowData(RowBatch rowBatch) {
+        batchSize ++;
         rowSize += rowBatch.getBatch().getRowsSize();
-        rowBatchList.add(rowBatch);
-        LOG.info("batch iseos:{}, is_compressed:{}, packet_seq:{}, row_size:{}",
-            rowBatch.isEos(),
-            rowBatch.getBatch().isIs_compressed(),
-            rowBatch.getBatch().getPacket_seq(),
-            rowBatch.getBatch().getRowsSize());
+        for (ByteBuffer buf : rowBatch.getBatch().getRows()) {
+            byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
+            dataSize += bytes.length;
+            rowList.add(bytes);
+            LOG.info("row:{}", bytes.toString());
+        }
     }
 
     public void buildSqlUpdateRequest(String sql, long lastestTime) {
         if (updateRequest == null) {
             updateRequest = new CacheProxy.UpdateCacheRequest(sql);
         }
-        int packet_seq = 0;
-        for (RowBatch batch : rowBatchList) {
-            TResultBatch result = new TResultBatch();
-            updateRequest.addValue(0, 0, lastestTime, batch.getBatch());
-        }
-        LOG.info("build sql update request, sql_key:{}, batch size:{}, packet num:{}",
+        updateRequest.addValue(0, 0, lastestTime, rowList);
+        LOG.info("build sql update request, sql_key:{}, batch:{}, row:{}, data:{}",
                 DebugUtil.printId(updateRequest.sql_key),
-                rowBatchList.size(), packet_seq);
+                batchSize, rowSize, dataSize);
     }
 
     /**
@@ -107,47 +108,42 @@ public class RowBatchBuilder {
         if (updateRequest == null) {
             updateRequest = new CacheProxy.UpdateCacheRequest(sql);
         }
-        HashMap<Long, List<ByteBuffer>> partRowMap = new HashMap<>();
+        HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
+        List<byte[]> partitionRowList;
         long partKey = 0;
-        for (RowBatch batch : rowBatchList) {
-            for (ByteBuffer row : batch.getBatch().getRows()) {
-                if (Type.SMALLINT.equals(keyType)) {
-                    partKey = row.getShort(begin);
-                } else if (Type.INT.equals(keyType)) {
-                    partKey = row.getInt(begin);
-                } else if (Type.BIGINT.equals(keyType)) {
-                    partKey = row.getLong(begin);
-                }
-                List<ByteBuffer> rowBufferList;
-                if (!partRowMap.containsKey(partKey)) {
-                    rowBufferList = Lists.newArrayList();
-                    rowBufferList.add(row);
-                    partRowMap.put(partKey, rowBufferList);
-                } else {
-                    partRowMap.get(partKey).add(row);
-                }
+        for (byte[] buf : rowList) {
+            ByteBuffer row = ByteBuffer.wrap(buf);
+            if (Type.SMALLINT.equals(keyType)) {
+                partKey = row.getShort(begin);
+            } else if (Type.INT.equals(keyType)) {
+                partKey = row.getInt(begin);
+            } else if (Type.BIGINT.equals(keyType)) {
+                partKey = row.getLong(begin);
+            }
+            if (!partRowMap.containsKey(partKey)) {
+                partitionRowList = Lists.newArrayList();
+                partitionRowList.add(buf);
+                partRowMap.put(partKey, partitionRowList);
+            } else {
+                partRowMap.get(partKey).add(buf);
             }
         }
-        int packet_seq = 0;
-        for (HashMap.Entry<Long, List<ByteBuffer>> entry : partRowMap.entrySet()) {
+
+        for (HashMap.Entry<Long, List<byte[]>> entry : partRowMap.entrySet()) {
             Long key = entry.getKey();
             PartitionRange.PartitionSingle partition = partMap.get(key);
             if (partition == null) {
                 LOG.warn("cant find partition");
                 continue;
             }
-            List<ByteBuffer> buffer = entry.getValue();
-            TResultBatch result = new TResultBatch();
-            result.setRows(buffer);
-            result.setPacket_seq(packet_seq);
-            packet_seq ++;
-            result.setIs_compressed(false);
+            partitionRowList = entry.getValue();
             updateRequest.addValue(key, partition.getPartition().getVisibleVersion(),
-                    partition.getPartition().getVisibleVersionTime(), result);
+                    partition.getPartition().getVisibleVersionTime(), partitionRowList);
+            LOG.info("build partition update request, sql_key:{}, part_key:{}, row_size:{}",
+                    DebugUtil.printId(updateRequest.sql_key),
+                    key,
+                    partitionRowList.size());
         }
-        LOG.info("build partition update request, sql_key:{}, batch size:{}, packet seq:{}",
-                DebugUtil.printId(updateRequest.sql_key),
-                rowBatchList.size(), packet_seq);
     }
 
     public CacheProxy.UpdateCacheRequest getUpdateRequest() {
