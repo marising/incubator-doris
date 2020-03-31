@@ -17,16 +17,17 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RangePartitionInfo;
@@ -252,7 +253,7 @@ public class CacheAnalyzer {
             }
 
             for (PartitionRange.PartitionSingle single : range.getSingleList()) {
-                request.addParam(single.getPartitionKey(),
+                request.addParam(single.getPartitionKey().realValue(),
                         single.getPartition().getVisibleVersion(),
                         single.getPartition().getVisibleVersionTime()
                 );
@@ -353,8 +354,8 @@ public class CacheAnalyzer {
     /**
     * P1 And P2 And P3 And P4
     */
-    private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate, 
-        List<PartitionRange.PartitionSingle> newRangeList) {
+    private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate,
+                                    List<PartitionRange.PartitionSingle> newRangeList) {
         if (expr==null) {
             return null;
         }
@@ -421,8 +422,8 @@ public class CacheAnalyzer {
                         cp.getChild(1) instanceof BinaryPredicate) {
                     BinaryPredicate leftPre = (BinaryPredicate) cp.getChild(0);
                     BinaryPredicate rightPre = (BinaryPredicate) cp.getChild(1);
-                    String leftColumn = ((SlotRef) leftPre.getChild(0)).getColumnName();
-                    String rightColumn = ((SlotRef) rightPre.getChild(0)).getColumnName();
+                    String leftColumn = getColumnName(leftPre);
+                    String rightColumn = getColumnName(rightPre);
                     if (leftColumn.equalsIgnoreCase(partColumn.getName()) &&
                             rightColumn.equalsIgnoreCase(partColumn.getName())) {
                         compoundPredicates.add(cp);
@@ -433,6 +434,31 @@ public class CacheAnalyzer {
                 getPartitionKeyFromWhereClause(subExpr, partColumn, compoundPredicates);
             }
         }
+    }
+
+    private String getColumnName(BinaryPredicate predicate) {
+        SlotRef slot = null;
+        if (predicate.getChild(0) instanceof SlotRef) {
+            slot = (SlotRef) predicate.getChild(0);
+        } else if (predicate.getChild(0) instanceof CastExpr) {
+            CastExpr expr = (CastExpr) predicate.getChild(0);
+            if (expr.getChild(0) instanceof SlotRef) {
+                slot = (SlotRef) expr.getChild(0);
+            }
+        }
+        if (slot != null) {
+            LOG.info("Slot column name:{}", slot.getColumnName());
+            return slot.getColumnName();
+        } else {
+            LOG.info("Predicate:{}", predicate.toString());
+            for (Expr child1 : predicate.getChildren()) {
+                LOG.info("child1:{},sql:{}", child1.toString(), child1.toSql());
+                for (Expr child2 : child1.getChildren()) {
+                    LOG.info("child2:{},sql:{}", child2.toString(), child2.toSql());
+                }
+            }
+        }
+        return "";
     }
 
     /*

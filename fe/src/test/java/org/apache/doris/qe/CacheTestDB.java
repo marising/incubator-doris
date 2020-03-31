@@ -120,25 +120,50 @@ public class CacheTestDB {
         db = new Database(1L, fullDbName);
     }
 
-    /*
-    public OlapTable createTestTable() {
-        OlapTable table = EasyMock.createMock(OlapTable.class);
-        Partition partition = EasyMock.createMock(Partition.class);
-        MaterializedIndex index = EasyMock.createMock(MaterializedIndex.class);
-        Column column1 = new Column("col1", PrimitiveType.BIGINT);
-        Column column2 = new Column("col2", PrimitiveType.DOUBLE);
-        EasyMock.expect(table.getBaseSchema()).andReturn(Lists.newArrayList(column1, column2)).anyTimes();
-        EasyMock.expect(table.getPartition(40000L)).andReturn(partition).anyTimes();
-        EasyMock.expect(partition.getBaseIndex()).andReturn(index).anyTimes();
-        EasyMock.expect(partition.getIndex(30000L)).andReturn(index).anyTimes();
-        EasyMock.expect(index.getId()).andReturn(30000L).anyTimes();
-        EasyMock.replay(index);
-        EasyMock.replay(partition);
+
+    public OlapTable createOrderTable() {
+          Column column1 = new Column("date", ScalarType.INT);
+        Column column2 = new Column("id", ScalarType.INT);
+        Column column3 = new Column("value", ScalarType.INT);
+        List<Column> columns = Lists.newArrayList(column1, column2, column3);
+
+        MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
+        RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
+
+        PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
+
+        Partition part12 = new Partition(20200112, "p20200112", baseIndex, distInfo);
+        part12.SetVisibleVersion(1,1,1578762000000L);     //2020-01-12 1:00:00
+        Partition part13 = new Partition(20200113, "p20200113", baseIndex, distInfo);
+        part13.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
+        Partition part14 = new Partition(20200114, "p20200114", baseIndex, distInfo);
+        part14.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
+        Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
+        part15.SetVisibleVersion(2,2,1579053661000L);     //2020-01-15 10:01:01
+
+        OlapTable table = new OlapTable(10000L, "order", columns,KeysType.DUP_KEYS, partInfo, distInfo);
+
+        table.addPartition(part12);
+        table.addPartition(part13);
+        table.addPartition(part14);
+        table.addPartition(part15);
+
+        table.setIndexSchemaInfo(baseIndex.getId(), "order", columns, 0, 1, (short) 1);
+        table.setBaseIndexId(baseIndex.getId());
+
         return table;
-    }*/
+    }
+
+    public ScanNode createOrderScanNode(){
+        OlapTable table = createOrderTable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(10004));
+        desc.setTable(table);
+        ScanNode node = new OlapScanNode(new PlanNodeId(10008), desc, "ordernode");
+        return node;
+    }
 
     public OlapTable createProfileTable() {
-        Column column1 = new Column("date", ScalarType.INT);
+        Column column1 = new Column("eventdate", ScalarType.DATE);
         Column column2 = new Column("userid", ScalarType.INT);
         Column column3 = new Column("country", ScalarType.INT);
         List<Column> columns = Lists.newArrayList(column1, column2, column3);
@@ -167,9 +192,6 @@ public class CacheTestDB {
         table.setIndexSchemaInfo(baseIndex.getId(), "userprofile", columns, 0, 1, (short) 1);
         table.setBaseIndexId(baseIndex.getId());
 
-        //EasyMock.expect(table.getRowCount()).andReturn(0L).anyTimes();
-        //EasyMock.replay(table);
-
         return table;
     }
 
@@ -183,25 +205,24 @@ public class CacheTestDB {
 
     /**
      * table appevent(date(pk), userid, eventid, eventtime), stream load every 5 miniutes
-     * @param scanNodes
      */
     public OlapTable createEventTable() {
-        Column column1 = new Column("date", ScalarType.INT);
+        Column column1 = new Column("eventdate", ScalarType.DATE);
         Column column2 = new Column("userid", ScalarType.INT);
         Column column3 = new Column("eventid", ScalarType.INT);
         Column column4 = new Column("eventtime", ScalarType.DATETIME);
-        List<Column> columns = Lists.newArrayList(column1, column2, column3);
+        List<Column> columns = Lists.newArrayList(column1, column2, column3,column4);
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
         MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
-        Partition part12 = new Partition(2020112, "p20200112", baseIndex, distInfo);
+        Partition part12 = new Partition(20200112, "p20200112", baseIndex, distInfo);
         part12.SetVisibleVersion(1,1,1578762000000L);     //2020-01-12 1:00:00
-        Partition part13 = new Partition(2020113, "p20200113", baseIndex, distInfo);
+        Partition part13 = new Partition(20200113, "p20200113", baseIndex, distInfo);
         part13.SetVisibleVersion(1,1,1578848400000L);     //2020-01-13 1:00:00
-        Partition part14 = new Partition(2020114, "p20200114", baseIndex, distInfo);
+        Partition part14 = new Partition(20200114, "p20200114", baseIndex, distInfo);
         part14.SetVisibleVersion(1,1,1578934800000L);     //2020-01-14 1:00:00
-        Partition part15 = new Partition(2020115, "p20200115", baseIndex, distInfo);
+        Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
         part15.SetVisibleVersion(2,2,1579053661000L);     //2020-01-15 10:01:01
 
         OlapTable table = new OlapTable(30000L, "appevent", columns,KeysType.DUP_KEYS, partInfo, distInfo);
@@ -228,12 +249,14 @@ public class CacheTestDB {
         try {
             catalog = EasyMock.createMock(Catalog.class);
             EasyMock.expect(catalog.getAuth()).andReturn(auth).anyTimes();
-            //OlapTable tbl1 = createTestTable();
+            OlapTable tbl1 = createOrderTable();
             OlapTable tbl2 = createProfileTable();
             OlapTable tbl3 = createEventTable();
-            //db.createTable(tbl1);
+
+            db.createTable(tbl1);
             db.createTable(tbl2);
             db.createTable(tbl3);
+
             EasyMock.expect(catalog.getDb(fullDbName)).andReturn(db).anyTimes();
             EasyMock.expect(catalog.getDb(dbName)).andReturn(db).anyTimes();
             EasyMock.expect(catalog.getDb(db.getId())).andReturn(db).anyTimes();

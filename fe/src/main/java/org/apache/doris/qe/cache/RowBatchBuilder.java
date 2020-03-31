@@ -74,7 +74,7 @@ public class RowBatchBuilder {
         }
         for (PartitionRange.PartitionSingle single : partitionSingleList) {
             single.Debug();
-            partMap.put(single.getPartitionKey(), single);
+            partMap.put(single.getPartitionKey().realValue(), single);
         }
         LOG.info("part name:{}, type:{}, result index:{}, range size:{} ", partColumn.getName(), keyType,
                 begin, partMap.size());

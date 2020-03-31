@@ -210,19 +210,55 @@ public class PartitionCacheTest {
     @Test
     public void testPartitionModel() throws Exception {
         StatementBase parseStmt = parseSql(
-            "SELECT date, COUNT(userid) FROM appevent WHERE date>=20200112 and date<=20200115 GROUP BY date"
+            "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate"
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
         Assert.assertEquals(cm, CacheModel.Partition);
     }
+
+    @Test
+    public void testPartitionIntTypeSql() throws Exception {
+        StatementBase parseStmt = parseSql(
+                "SELECT `date`, COUNT(id) FROM `order` WHERE `date`>=20200112 and `date`<=20200115 GROUP BY date"
+        );
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createOrderScanNode());
+        CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
+        CacheModel cm = ca.checkCacheModel(1579053661000L);     //2020-1-15 10:01:01
+        Assert.assertEquals(cm, CacheModel.Partition);                //assert cache model first
+
+        try {
+            ca.rewriteSelectStmt(null);
+            Assert.assertEquals(ca.getNokeyStmt().getWhereClause(), null);
+
+            PartitionRange range = ca.getPartitionRange();
+            boolean flag = range.analytics();
+            Assert.assertEquals(flag, true);
+
+            int size = range.getSingleList().size();
+            LOG.warn("Rewrite partition range size={}", size);
+            Assert.assertEquals(size, 4);
+
+            String sql;
+            range.setCacheFlag(20200112L);    //get data from cache
+            range.setCacheFlag(20200113L);    //get data from cache
+
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+            ca.rewriteSelectStmt(newRangeList);
+            sql = ca.getRewriteStmt().getWhereClause().toSql();
+            Assert.assertEquals(sql, "(`date` >= 20200114) AND (`date` <= 20200115)");
+        } catch (Exception e) {
+            LOG.warn("ex={}", e);
+            Assert.fail(e.getMessage());
+        }
+    }
     
 
     @Test
     public void testSimpleCacheSql() throws Exception {
         StatementBase parseStmt = parseSql(
-            "SELECT date, COUNT(userid) FROM appevent WHERE date>=20200112 and date<=20200115 GROUP BY date"
+            "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate"
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
@@ -249,17 +285,19 @@ public class PartitionCacheTest {
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();            
             ca.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
-            Assert.assertEquals(sql,"(`date` >= 20200114) AND (`date` <= 20200115)");
+            Assert.assertEquals(sql,"(`eventdate` >= '2020-01-14') AND (`eventdate` <= '2020-01-15')");
         } catch(Exception e){
             LOG.warn("ex={}",e);
             Assert.fail(e.getMessage());
         }
     }
+
    
     @Test
     public void testRewriteMultiPredicate1() throws Exception {
         StatementBase parseStmt = parseSql(
-            "SELECT date, COUNT(userid) FROM appevent WHERE date>20200111 and date<20200116 and eventid=1 GROUP BY date"
+            "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>\"2020-01-11\" and eventdate<\"2020-01-16\"" +
+                    " and eventid=1 GROUP BY eventdate"
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
@@ -286,7 +324,7 @@ public class PartitionCacheTest {
             ca.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("MultiPredicate={}", sql);                
-            Assert.assertEquals(sql,"((`date` > 20200113) AND (`date` < 20200116)) AND (`eventid` = 1)");
+            Assert.assertEquals(sql,"((`eventdate` > '2020-01-13') AND (`eventdate` < '2020-01-16')) AND (`eventid` = 1)");
         } catch(Exception e){
             LOG.warn("multi ex={}",e);
             Assert.fail(e.getMessage());
@@ -296,8 +334,10 @@ public class PartitionCacheTest {
     @Test
     public void testRewriteJoin() throws Exception {
         StatementBase parseStmt = parseSql(
-            "SELECT appevent.date, country, COUNT(appevent.userid) FROM appevent INNER JOIN userprofile ON appevent.userid = userprofile.userid" +
-            " WHERE appevent.date>=20200112 and appevent.date<=20200115 and eventid=1 GROUP BY appevent.date, country"
+            "SELECT appevent.eventdate, country, COUNT(appevent.userid) FROM appevent" +
+                    " INNER JOIN userprofile ON appevent.userid = userprofile.userid" +
+            " WHERE appevent.eventdate>=\"2020-01-12\" and appevent.eventdate<=\"2020-01-15\"" +
+                    " and eventid=1 GROUP BY appevent.eventdate, country"
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
@@ -324,7 +364,8 @@ public class PartitionCacheTest {
             ca.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("Join rewrite={}", sql);                
-            Assert.assertEquals(sql,"((`appevent`.`date` >= 20200114) AND (`appevent`.`date` <= 20200115)) AND (`eventid` = 1)");
+            Assert.assertEquals(sql,"((`appevent`.`eventdate` >= '2020-01-14')" +
+                    " AND (`appevent`.`eventdate` <= '2020-01-15')) AND (`eventid` = 1)");
         } catch(Exception e){
             LOG.warn("Join ex={}",e);
             Assert.fail(e.getMessage());
