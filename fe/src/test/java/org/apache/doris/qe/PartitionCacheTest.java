@@ -328,7 +328,7 @@ public class PartitionCacheTest {
 
             String sql;
             range.setCacheFlag(20200112L);    //get data from cache
-            range.setTooNew(20200115);
+            range.setTooNewByKey(20200115);
 
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
             Assert.assertEquals(newRangeList.size(), 2);

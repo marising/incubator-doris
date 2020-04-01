@@ -55,9 +55,9 @@ public class PartitionRange {
 
     public class PartitionSingle {
         private Partition partition;
-        private PartitionKey key;
+        private PartitionKey partitionKey;
         private long partitionId;
-        private PartitionKeyType partitionKey; //Cache Key
+        private PartitionKeyType cacheKey; //Cache Key
         private boolean fromCache;
         private boolean tooNew;
 
@@ -67,11 +67,11 @@ public class PartitionRange {
         public void setPartition(Partition partition) {
             this.partition = partition;
         }
-        public PartitionKey getKey() {
-            return key;
+        public PartitionKey getPartitionKey() {
+            return partitionKey;
         }
-        public void setKey(PartitionKey key) {
-            this.key = key;
+        public void setPartitionKey(PartitionKey key) {
+            this.partitionKey = key;
         }
         public long getPartitionId() {
             return partitionId;
@@ -80,11 +80,11 @@ public class PartitionRange {
             this.partitionId = partitionId;
         }
 
-        public PartitionKeyType getPartitionKey() {
-            return partitionKey;
+        public PartitionKeyType getCacheKey() {
+            return cacheKey;
         }
-        public void setPartitionKey(PartitionKeyType partitionKey) {
-            this.partitionKey.clone(partitionKey);
+        public void setCacheKey(PartitionKeyType cacheKey) {
+            this.cacheKey.clone(cacheKey);
         }
 
         public boolean isFromCache() {
@@ -101,13 +101,18 @@ public class PartitionRange {
         }
         public PartitionSingle(){
             this.partitionId = 0;
-            this.partitionKey = new PartitionKeyType();
+            this.cacheKey = new PartitionKeyType();
             this.fromCache = false;
             this.tooNew = false;
         }
         public void Debug() {
-            LOG.info("partition id:{}, key:{}, version:{}, time:{} ", partitionId, partitionKey.toString(),
-                    partition.getVisibleVersion(), partition.getVisibleVersionTime());
+            if (partition!=null) {
+                LOG.info("partition id:{}, cacheKey:{}, version:{}, time:{}, fromCache:{}, tooNew:{} ", partitionId, cacheKey.realValue(),
+                    partition.getVisibleVersion(), partition.getVisibleVersionTime(), fromCache, tooNew);
+            } else {
+                LOG.info("partition id:{}, cacheKey:{}, fromCache:{}, tooNew:{} ", partitionId, cacheKey.realValue(),
+                    fromCache, tooNew);
+            }
         }
     }
 
@@ -278,27 +283,42 @@ public class PartitionRange {
         return true;
     }
 
-    public boolean setCacheFlag(long partitionKey) {
+    public boolean setCacheFlag(long cacheKey) {
         boolean find = false;
         for (PartitionSingle single : partitionSingleList) {
-            if (single.getPartitionKey().realValue() == partitionKey) {
+            if (single.getCacheKey().realValue() == cacheKey) {
                 single.setFromCache(true);
                 find = true;
                 break;
             }
         }
+        LOG.info("set partition {} from cache {}", cacheKey, find);
         return find;
     }
 
-    public boolean setTooNew(long partitionKey) {
+    public boolean setTooNewByID(long partitionID) {
         boolean find = false;
         for (PartitionSingle single : partitionSingleList) {
-            if (single.getPartitionKey().realValue() == partitionKey) {
+            if (single.getPartition().getId() == partitionID) {
                 single.setTooNew(true);
                 find = true;
                 break;
             }
         }
+        LOG.info("set partition {} too new {}", partitionID, find);
+        return find;
+    }
+    
+    public boolean setTooNewByKey(long cacheKey) {
+        boolean find = false;
+        for (PartitionSingle single : partitionSingleList) {
+            if (single.getCacheKey().realValue() == cacheKey) {
+                single.setTooNew(true);
+                find = true;
+                break;
+            }
+        }
+        LOG.info("set partition {} too new {}", cacheKey, find);
         return find;
     }
 
@@ -347,6 +367,8 @@ public class PartitionRange {
         for (PartitionSingle single : partitionSingleList) {
             if (!single.isFromCache() && !single.isTooNew()) {
                 newList.add(single);
+            } else {
+                single.Debug();
             }
         }
         LOG.info("update partition range size {}", newList.size());
@@ -373,17 +395,17 @@ public class PartitionRange {
                 PartitionKeyType key = new PartitionKeyType();
                 switch (op) {
                     case LE: //<=
-                        key.clone(rangeList.get(1).getPartitionKey());
+                        key.clone(rangeList.get(1).getCacheKey());
                         break;
                     case LT: //<
-                        key.clone(rangeList.get(1).getPartitionKey());
+                        key.clone(rangeList.get(1).getCacheKey());
                         key.add(1);
                         break;
                     case GE: //>=
-                        key.clone(rangeList.get(0).getPartitionKey());
+                        key.clone(rangeList.get(0).getCacheKey());
                         break;
                     case GT: //>
-                        key.clone(rangeList.get(0).getPartitionKey());
+                        key.clone(rangeList.get(0).getCacheKey());
                         key.add(-1);
                         break;
                     default:
@@ -436,7 +458,7 @@ public class PartitionRange {
         for(Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getIdToRange().entrySet() ) {
             Long partId = entry.getKey();
             for(PartitionSingle single : partitionSingleList) {
-                if (entry.getValue().contains(single.getKey())) {
+                if (entry.getValue().contains(single.getPartitionKey())) {
                     if( single.getPartitionId() == 0) {
                         single.setPartitionId(partId);
                     }
@@ -480,8 +502,8 @@ public class PartitionRange {
                     Lists.newArrayList(new PartitionValue(begin.toString())),
                     Lists.newArrayList(partitionColumn));
             PartitionSingle single = new PartitionSingle();
-            single.setPartitionKey(begin);
-            single.setKey(key);
+            single.setCacheKey(begin);
+            single.setPartitionKey(key);
             partitionSingleList.add(single);
             begin.add(1);
         }

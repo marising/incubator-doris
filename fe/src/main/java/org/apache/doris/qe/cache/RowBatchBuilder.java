@@ -75,7 +75,7 @@ public class RowBatchBuilder {
         if (newSingleList != null) {
             for (PartitionRange.PartitionSingle single : newSingleList) {
                 single.Debug();
-                partMap.put(single.getPartitionKey().realValue(), single);
+                partMap.put(single.getCacheKey().realValue(), single);
             }
         } else {
             LOG.info("no new partition single list.");
