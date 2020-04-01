@@ -143,8 +143,12 @@ public class CacheProxy {
                     param.partition_key, param.last_version, param.last_version_time,
                     row.size(),
                     data_size);
-            for(int i = 0; i < row.size(); i++) {
-                LOG.info("{}:{}", i, row.get(i).toString());
+            for (int i = 0; i < row.size(); i++) {
+                try {
+                    String str = new String(row.get(i), "UTF-8");
+                    LOG.info("{}:{}", i, str);
+                }catch (Exception e){
+                }
                 LOG.info("{}:{}", i, row.get(i));
             }
         }

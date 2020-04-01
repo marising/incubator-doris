@@ -49,7 +49,7 @@ public class RowBatchBuilder {
 
     public RowBatchBuilder(CacheAnalyzer.CacheModel model) {
         cacheModel = model;
-        begin = 0;
+        keyIndex = 0;
         keyType = Type.INVALID;
         rowList = Lists.newArrayList();
         partMap = new HashMap<>();
@@ -101,7 +101,26 @@ public class RowBatchBuilder {
                 DebugUtil.printId(updateRequest.sql_key),
                 batchSize, rowSize, dataSize);
     }
-    
+
+
+    public PartitionRange.PartitionKeyType getKeyFromRow(byte[] row,int index,Type type) {
+        PartitionRange.PartitionKeyType key = new PartitionRange.PartitionKeyType();
+        ByteBuffer buf = ByteBuffer.wrap(row);
+        int len;
+        for (int i = 0; i <= index; i++) {
+            len = buf.getShort();
+            if (i < index) {
+                buf.position(buf.position() + len);
+            }
+            if (i == index) {
+                LOG.info("pos:{},len:{}", buf.position(), len);
+                byte[] content = Arrays.copyOfRange(buf.array(), buf.position() + 1, buf.position() + 1 + len);
+                key.init(type, content.toString());
+            }
+        }
+        return key;
+    }
+
     /**
      * Rowbatch split to TResultData
      */
@@ -111,22 +130,15 @@ public class RowBatchBuilder {
         }
         HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
         List<byte[]> partitionRowList;
-        long partKey = 0;
-        for (byte[] buf : rowList) {
-            ByteBuffer row = ByteBuffer.wrap(buf);
-            if (Type.SMALLINT.equals(keyType)) {
-                partKey = row.getShort(begin);
-            } else if (Type.INT.equals(keyType)) {
-                partKey = row.getInt(begin);
-            } else if (Type.BIGINT.equals(keyType)) {
-                partKey = row.getLong(begin);
-            }
-            if (!partRowMap.containsKey(partKey)) {
+        PartitionRange.PartitionKeyType partKey;
+        for (byte[] row : rowList) {
+            partKey = getKeyFromRow(row, keyIndex, keyType);
+            if (!partRowMap.containsKey(partKey.realValue())) {
                 partitionRowList = Lists.newArrayList();
-                partitionRowList.add(buf);
-                partRowMap.put(partKey, partitionRowList);
+                partitionRowList.add(row);
+                partRowMap.put(partKey.realValue(), partitionRowList);
             } else {
-                partRowMap.get(partKey).add(buf);
+                partRowMap.get(partKey).add(row);
             }
         }
 

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Partition;
@@ -109,13 +110,27 @@ public class PartitionRange {
         TIME
     }
 
-    public class PartitionKeyType {
+    public static class PartitionKeyType {
         private SimpleDateFormat df8 = new SimpleDateFormat("yyyyMMdd");
         private SimpleDateFormat df10 = new SimpleDateFormat("yyyy-MM-dd");
 
         public KeyType keyType = KeyType.DEFAULT;
         public long value;
         public Date date;
+
+        public boolean init(Type type, String str) {
+            if (type.getPrimitiveType() == PrimitiveType.DATE) {
+                try {
+                    date = df10.parse(str);
+                } catch (Exception e) {
+                    LOG.warn("parse error str{}.", str);
+                    return false;
+                }
+            } else {
+                value = Long.valueOf(str);
+            }
+            return true;
+        }
 
         public boolean init(Type type, LiteralExpr expr) {
             switch (type.getPrimitiveType()) {
@@ -146,6 +161,8 @@ public class PartitionRange {
             return true;
         }
 
+
+
         public void clone(PartitionKeyType key) {
             keyType = key.keyType;
             value = key.value;
@@ -162,6 +179,10 @@ public class PartitionRange {
             } else {
                 value += num;
             }
+        }
+
+        public void fromString(){
+
         }
 
         public String toString() {

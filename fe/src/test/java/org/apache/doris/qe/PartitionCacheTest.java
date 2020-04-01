@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.CacheTestDB;
 import org.apache.doris.qe.cache.PartitionRange;
@@ -216,6 +217,16 @@ public class PartitionCacheTest {
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
         CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
         Assert.assertEquals(cm, CacheModel.Partition);
+    }
+
+    @Test
+    public void testParseByte() throws Exception {
+        RowBatchBuilder sb = new RowBatchBuilder(CacheModel.Partition);
+        byte[] buffer = new byte[]{10, 50, 48, 50, 48, 45, 48, 51, 45, 49, 48, 1, 51, 2, 67, 78};
+        PartitionRange.PartitionKeyType key1 = sb.getKeyFromRow(buffer, 0, Type.DATE);
+        Assert.assertEquals(key1.realValue(), "20200310");
+        PartitionRange.PartitionKeyType key2 = sb.getKeyFromRow(buffer, 1, Type.INT);
+        Assert.assertEquals(key1.realValue(), "3");
     }
 
     @Test
