@@ -60,7 +60,7 @@ public class RowBatchBuilder {
 
     public void partitionIndex(ArrayList<Expr> resultExpr,
                                List<String> columnLabel, Column partColumn,
-                               List<PartitionRange.PartitionSingle> partitionSingleList) {
+                               List<PartitionRange.PartitionSingle> newSingleList) {
         if (cacheModel != CacheAnalyzer.CacheModel.Partition) {
             return;
         }
@@ -72,11 +72,15 @@ public class RowBatchBuilder {
                 break;
             }
         }
-
-        for (PartitionRange.PartitionSingle single : partitionSingleList) {
-            single.Debug();
-            partMap.put(single.getPartitionKey().realValue(), single);
+        if (newSingleList != null) {
+            for (PartitionRange.PartitionSingle single : newSingleList) {
+                single.Debug();
+                partMap.put(single.getPartitionKey().realValue(), single);
+            }
+        } else {
+            LOG.info("no new partition single list.");
         }
+
         LOG.info("part name:{}, index:{}, type:{}, result index:{}, range size:{} ", 
                 partColumn.getName(), keyIndex, keyType, partMap.size());
     }
@@ -88,7 +92,7 @@ public class RowBatchBuilder {
             byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
             dataSize += bytes.length;
             rowList.add(bytes);
-            LOG.info("row:{}", bytes.toString());
+            LOG.info("set row:{}", bytes);
         }
     }
 
@@ -108,14 +112,15 @@ public class RowBatchBuilder {
         ByteBuffer buf = ByteBuffer.wrap(row);
         int len;
         for (int i = 0; i <= index; i++) {
-            len = buf.getShort();
+            len = buf.get();
             if (i < index) {
                 buf.position(buf.position() + len);
             }
             if (i == index) {
-                LOG.info("pos:{},len:{}", buf.position(), len);
-                byte[] content = Arrays.copyOfRange(buf.array(), buf.position() + 1, buf.position() + 1 + len);
-                key.init(type, content.toString());
+                byte[] content = Arrays.copyOfRange(buf.array(), buf.position(), buf.position() + len);
+                String str = new String(content);
+                LOG.info("row pos {},len {},cont {},str {}", buf.position(), len, content, str);
+                key.init(type, str.toString());
             }
         }
         return key;
@@ -146,7 +151,7 @@ public class RowBatchBuilder {
             Long key = entry.getKey();
             PartitionRange.PartitionSingle partition = partMap.get(key);
             if (partition == null) {
-                LOG.warn("cant find partition");
+                LOG.warn("cant find partition key {}", key);
                 continue;
             }
             partitionRowList = entry.getValue();

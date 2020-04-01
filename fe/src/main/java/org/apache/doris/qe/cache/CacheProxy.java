@@ -144,11 +144,6 @@ public class CacheProxy {
                     row.size(),
                     data_size);
             for (int i = 0; i < row.size(); i++) {
-                try {
-                    String str = new String(row.get(i), "UTF-8");
-                    LOG.info("{}:{}", i, str);
-                }catch (Exception e){
-                }
                 LOG.info("{}:{}", i, row.get(i));
             }
         }

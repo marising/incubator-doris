@@ -126,8 +126,10 @@ public class PartitionRange {
                     LOG.warn("parse error str{}.", str);
                     return false;
                 }
+                keyType = KeyType.DATE;
             } else {
                 value = Long.valueOf(str);
+                keyType = KeyType.LONG;
             }
             return true;
         }
@@ -161,8 +163,6 @@ public class PartitionRange {
             return true;
         }
 
-
-
         public void clone(PartitionKeyType key) {
             keyType = key.keyType;
             value = key.value;
@@ -181,16 +181,11 @@ public class PartitionRange {
             }
         }
 
-        public void fromString(){
-
-        }
-
         public String toString() {
             if (keyType == KeyType.DEFAULT) {
                 return "";
             } else if (keyType == KeyType.DATE) {
-                SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd");
-                return df.format(date);
+                return df10.format(date);
             } else {
                 return String.valueOf(value);
             }
@@ -198,8 +193,7 @@ public class PartitionRange {
 
         public long realValue() {
             if (keyType == KeyType.DATE) {
-                SimpleDateFormat df = new SimpleDateFormat("yyyyMMdd");
-                return Long.parseLong(df.format(date));
+                return Long.parseLong(df8.format(date));
             } else {
                 return value;
             }
@@ -324,6 +318,7 @@ public class PartitionRange {
             rangeList.add(partitionSingleList.get(0));
             rangeList.add(partitionSingleList.get(partitionSingleList.size()-1));
         }
+        LOG.info("new range size {}", rangeList.size());
         return rangeList;
     }
 

@@ -264,12 +264,12 @@ public class CacheAnalyzer {
                 for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                     range.setCacheFlag(value.param.partition_key);
                 }
-                newRangeList = range.newPartitionRange();
-                rewriteSelectStmt(newRangeList);
                 MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
                 MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getSingleList().size());
                 MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
             }
+            newRangeList = range.newPartitionRange();
+            rewriteSelectStmt(newRangeList);
         }
 
         if (status.ok() && cacheResult != null) {
