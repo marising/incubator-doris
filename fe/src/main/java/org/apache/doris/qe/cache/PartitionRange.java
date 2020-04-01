@@ -248,8 +248,8 @@ public class PartitionRange {
         partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
         PartitionColumnFilter filter = createPartitionFilter(this.partitionKeyPredicate, partitionColumn);
         try {
-            List<PartitionSingle> singleList = getPartitionKeyRange(filter, partitionColumn);
-            getTablePartitionList(olapTable, singleList);
+            getPartitionKeyRange(filter, partitionColumn);
+            getTablePartitionList(olapTable);
         } catch (AnalysisException e) {
             LOG.warn("get partition range failed, because:", e);
             return false;
@@ -384,11 +384,11 @@ public class PartitionRange {
      * ( PARTITION p20200101 VALUES [("20200101"), ("20200102")),
      * PARTITION p20200102 VALUES [("20200102"), ("20200103")) )
      */
-    private void getTablePartitionList(OlapTable table, List<PartitionSingle> singleList) {
+    private void getTablePartitionList(OlapTable table) {
         Map<Long, Range<PartitionKey>>  range =  rangePartitionInfo.getIdToRange();
         for(Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getIdToRange().entrySet() ) {
             Long partId = entry.getKey();
-            for(PartitionSingle single : singleList) {
+            for(PartitionSingle single : partitionSingleList) {
                 if (entry.getValue().contains(single.getKey())) {
                     if( single.getPartitionId() == 0) {
                         single.setPartitionId(partId);
@@ -396,22 +396,20 @@ public class PartitionRange {
                 }
             }
         }
-        for(PartitionSingle single : singleList) {
-            if( single.getPartitionId() != 0) {
-                single.setPartition(table.getPartition(single.getPartitionId()));
-                partitionSingleList.add(single);
-            }
+        
+        for(PartitionSingle single : partitionSingleList) {
+            single.setPartition(table.getPartition(single.getPartitionId()));
         }
     }
 
     /**
      * Get value range of partition column from predicate
      */
-    private List<PartitionSingle> getPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
+    private void getPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
         Column partitionColumn) throws AnalysisException {
         if (partitionColumnFilter.lowerBound == null || partitionColumnFilter.upperBound == null) {
-            LOG.warn("filter is null");
-            return partitionSingleList;
+            LOG.info("filter is null");
+            return;
         }
         PartitionKeyType begin = new PartitionKeyType();
         PartitionKeyType end = new PartitionKeyType();
@@ -426,8 +424,9 @@ public class PartitionRange {
         }
         if (begin.realValue() > end.realValue()) {
             LOG.info("partition range begin:{}, end{}", begin, end);
-            return partitionSingleList;
+            return;
         }
+    
         LOG.info("partition range begin:{}, end:{}", begin.toString(), end.toString());
         while (begin.realValue() <= end.realValue()) {
             PartitionKey key = PartitionKey.createPartitionKey(
@@ -439,7 +438,6 @@ public class PartitionRange {
             partitionSingleList.add(single);
             begin.add(1);
         }
-        return partitionSingleList;
     }
 
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,

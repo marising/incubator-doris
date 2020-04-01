@@ -37,7 +37,7 @@ public class RowBatchBuilder {
 
     private CacheProxy.UpdateCacheRequest updateRequest;
     private CacheAnalyzer.CacheModel cacheModel;
-    private int begin;
+    private int keyIndex;
     private Type keyType;
     private HashMap<Long, PartitionRange.PartitionSingle> partMap;
     private List<byte[]> rowList;
@@ -64,20 +64,21 @@ public class RowBatchBuilder {
         if (cacheModel != CacheAnalyzer.CacheModel.Partition) {
             return;
         }
+
         for (int i = 0; i < columnLabel.size(); i++) {
-            int size = resultExpr.get(i).getType().getColumnSize();
             if (columnLabel.get(i).equalsIgnoreCase(partColumn.getName())) {
                 keyType = resultExpr.get(i).getType();
+                keyIndex = i;
                 break;
             }
-            begin += size;
         }
+
         for (PartitionRange.PartitionSingle single : partitionSingleList) {
             single.Debug();
             partMap.put(single.getPartitionKey().realValue(), single);
         }
-        LOG.info("part name:{}, type:{}, result index:{}, range size:{} ", partColumn.getName(), keyType,
-                begin, partMap.size());
+        LOG.info("part name:{}, index:{}, type:{}, result index:{}, range size:{} ", 
+                partColumn.getName(), keyIndex, keyType, partMap.size());
     }
 
     public void copyRowData(RowBatch rowBatch) {
@@ -100,7 +101,7 @@ public class RowBatchBuilder {
                 DebugUtil.printId(updateRequest.sql_key),
                 batchSize, rowSize, dataSize);
     }
-
+    
     /**
      * Rowbatch split to TResultData
      */

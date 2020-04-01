@@ -145,6 +145,7 @@ public class CacheProxy {
                     data_size);
             for(int i = 0; i < row.size(); i++) {
                 LOG.info("{}:{}", i, row.get(i).toString());
+                LOG.info("{}:{}", i, row.get(i));
             }
         }
     }
