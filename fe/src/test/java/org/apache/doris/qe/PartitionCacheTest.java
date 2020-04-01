@@ -249,7 +249,7 @@ public class PartitionCacheTest {
             boolean flag = range.analytics();
             Assert.assertEquals(flag, true);
 
-            int size = range.getSingleList().size();
+            int size = range.getPartitionSingleList().size();
             LOG.warn("Rewrite partition range size={}", size);
             Assert.assertEquals(size, 4);
 
@@ -266,7 +266,6 @@ public class PartitionCacheTest {
             Assert.fail(e.getMessage());
         }
     }
-    
 
     @Test
     public void testSimpleCacheSql() throws Exception {
@@ -287,7 +286,7 @@ public class PartitionCacheTest {
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
-            int size = range.getSingleList().size();
+            int size = range.getPartitionSingleList().size();
             LOG.warn("Rewrite partition range size={}", size);
             Assert.assertEquals(size, 4);
             
@@ -305,6 +304,46 @@ public class PartitionCacheTest {
         }
     }
 
+    @Test
+    public void testUpdatePartition() throws Exception {
+        StatementBase parseStmt = parseSql(
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate"
+        );
+        List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
+        CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
+        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+
+        try {
+            ca.rewriteSelectStmt(null);
+            Assert.assertEquals(ca.getNokeyStmt().getWhereClause(), null);
+
+            PartitionRange range = ca.getPartitionRange();
+            boolean flag = range.analytics();
+            Assert.assertEquals(flag, true);
+
+            int size = range.getPartitionSingleList().size();
+            LOG.warn("Rewrite partition range size={}", size);
+            Assert.assertEquals(size, 4);
+
+            String sql;
+            range.setCacheFlag(20200112L);    //get data from cache
+            range.setTooNew(20200115);
+
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+            Assert.assertEquals(newRangeList.size(), 2);
+            ca.rewriteSelectStmt(newRangeList);
+
+            sql = ca.getRewriteStmt().getWhereClause().toSql();
+            Assert.assertEquals(sql, "(`eventdate` >= '2020-01-13') AND (`eventdate` <= '2020-01-15')");
+
+            List<PartitionRange.PartitionSingle> updateRangeList = range.updatePartitionRange();
+            Assert.assertEquals(updateRangeList.size(), 2);
+        } catch (Exception e) {
+            LOG.warn("ex={}", e);
+            Assert.fail(e.getMessage());
+        }
+    }
    
     @Test
     public void testRewriteMultiPredicate1() throws Exception {
@@ -325,7 +364,7 @@ public class PartitionCacheTest {
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
-            int size = range.getSingleList().size();
+            int size = range.getPartitionSingleList().size();
             Assert.assertEquals(size, 4);
             
             String sql;        
@@ -365,7 +404,7 @@ public class PartitionCacheTest {
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
-            int size = range.getSingleList().size();
+            int size = range.getPartitionSingleList().size();
             Assert.assertEquals(size, 4);
             
             String sql;        

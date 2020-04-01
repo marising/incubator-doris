@@ -59,6 +59,8 @@ public class PartitionRange {
         private long partitionId;
         private PartitionKeyType partitionKey; //Cache Key
         private boolean fromCache;
+        private boolean tooNew;
+
         public Partition getPartition() {
             return partition;
         }
@@ -91,10 +93,17 @@ public class PartitionRange {
         public void setFromCache(boolean fromCache) {
             this.fromCache = fromCache;
         }
+        public boolean isTooNew(){
+            return tooNew;
+        }
+        public void setTooNew(boolean tooNew) {
+            this.tooNew = tooNew;
+        }
         public PartitionSingle(){
             this.partitionId = 0;
             this.partitionKey = new PartitionKeyType();
             this.fromCache = false;
+            this.tooNew = false;
         }
         public void Debug() {
             LOG.info("partition id:{}, key:{}, version:{}, time:{} ", partitionId, partitionKey.toString(),
@@ -235,11 +244,8 @@ public class PartitionRange {
     public void setPartitionColumn(Column partitionColumn) {
         this.partitionColumn = partitionColumn;
     }
-    public List<PartitionSingle> getSingleList() {
+    public List<PartitionSingle> getPartitionSingleList() {
         return partitionSingleList;
-    }
-    public void setSingleList(List<PartitionSingle> singleList) {
-        this.partitionSingleList = singleList;
     }
 
     public PartitionRange() {
@@ -273,12 +279,27 @@ public class PartitionRange {
     }
 
     public boolean setCacheFlag(long partitionKey) {
-        for(PartitionSingle single : partitionSingleList) {
+        boolean find = false;
+        for (PartitionSingle single : partitionSingleList) {
             if (single.getPartitionKey().realValue() == partitionKey) {
                 single.setFromCache(true);
+                find = true;
+                break;
             }
         }
-        return true;
+        return find;
+    }
+
+    public boolean setTooNew(long partitionKey) {
+        boolean find = false;
+        for (PartitionSingle single : partitionSingleList) {
+            if (single.getPartitionKey().realValue() == partitionKey) {
+                single.setTooNew(true);
+                find = true;
+                break;
+            }
+        }
+        return find;
     }
 
     /**
@@ -318,8 +339,18 @@ public class PartitionRange {
             rangeList.add(partitionSingleList.get(0));
             rangeList.add(partitionSingleList.get(partitionSingleList.size()-1));
         }
-        LOG.info("new range size {}", rangeList.size());
         return rangeList;
+    }
+
+    public List<PartitionSingle> updatePartitionRange() {
+        List<PartitionSingle> newList = Lists.newArrayList();
+        for (PartitionSingle single : partitionSingleList) {
+            if (!single.isFromCache() && !single.isTooNew()) {
+                newList.add(single);
+            }
+        }
+        LOG.info("update partition range size {}", newList.size());
+        return newList;
     }
 
     public boolean rewritePredicate(CompoundPredicate predicate, List<PartitionSingle> rangeList) {

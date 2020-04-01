@@ -252,22 +252,23 @@ public class CacheAnalyzer {
                 return cacheResult;
             }
 
-            for (PartitionRange.PartitionSingle single : range.getSingleList()) {
+            for (PartitionRange.PartitionSingle single : range.getPartitionSingleList()) {
                 request.addParam(single.getPartitionKey().realValue(),
                         single.getPartition().getVisibleVersion(),
                         single.getPartition().getVisibleVersionTime()
                 );
             }
             cacheResult = proxy.fetchCache(request, 10000, status);
-            LOG.info("fetch partition cache, ms:{}", status.getErrorMsg());
+            LOG.info("fetch partition cache, msg:{}", status.getErrorMsg());
             if( cacheResult != null ){
                 for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                     range.setCacheFlag(value.param.partition_key);
                 }
                 MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
-                MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getSingleList().size());
+                MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getPartitionSingleList().size());
                 MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
             }
+            range.setTooNew(latestTable.latestKey);
             newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);
         }
@@ -289,7 +290,7 @@ public class CacheAnalyzer {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(cacheModel);
             rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
-                    partColumn, newRangeList);
+                    partColumn, range.updatePartitionRange());
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }
