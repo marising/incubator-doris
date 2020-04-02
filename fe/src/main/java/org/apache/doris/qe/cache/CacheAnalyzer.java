@@ -271,6 +271,7 @@ public class CacheAnalyzer {
             range.setTooNewByID(latestTable.latestID);
             newRangeList = range.newPartitionRange();
             rewriteSelectStmt(newRangeList);
+            LOG.info("rewrite sql:{}", rewriteStmt.toSql());    
         }
 
         if (status.ok() && cacheResult != null) {
@@ -289,8 +290,10 @@ public class CacheAnalyzer {
         }
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(cacheModel);
-            rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
+            if (cacheModel == CacheModel.Partition) {
+                rowBatchBuilder.partitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
                     partColumn, range.updatePartitionRange());
+            }
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }

@@ -558,12 +558,15 @@ public class StmtExecutor {
             CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
             CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
             CacheModel model = cacheAnalyzer.getCacheModel();
+            int idx = 0;
             if (cacheResult != null) {
                 for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
-                    }
+                        idx ++;
+                        LOG.info("row idx {} from cache", idx);
+                    } 
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (model == CacheModel.Sql) {
@@ -575,6 +578,9 @@ public class StmtExecutor {
                 }
                 if (model == CacheModel.Partition) {
                     SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                    newSelectStmt.reset();
+                    analyzer = new Analyzer(context.getCatalog(), context); 
+                    newSelectStmt.analyze(analyzer); 
                     planner = new Planner();
                     planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
                 }
@@ -584,13 +590,15 @@ public class StmtExecutor {
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt, coord));
             coord.exec();
-
+            idx = 0;
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
                     cacheAnalyzer.copyRowBatch(batch);
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
+                        idx ++;
+                        LOG.info("row idx {} from be", idx);
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
