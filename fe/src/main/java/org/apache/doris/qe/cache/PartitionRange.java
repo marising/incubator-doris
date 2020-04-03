@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import org.apache.doris.common.AnalysisException;
@@ -47,8 +48,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
-/*
+/**
  * Convert the range of the partition to the list
+ * all partition by day/week/month split to day list
  */
 public class PartitionRange {
     private static final Logger LOG = LogManager.getLogger(PartitionRange.class);
@@ -57,25 +59,30 @@ public class PartitionRange {
         private Partition partition;
         private PartitionKey partitionKey;
         private long partitionId;
-        private PartitionKeyType cacheKey; //Cache Key
+        private PartitionKeyType cacheKey;
         private boolean fromCache;
         private boolean tooNew;
 
         public Partition getPartition() {
             return partition;
         }
+
         public void setPartition(Partition partition) {
             this.partition = partition;
         }
+
         public PartitionKey getPartitionKey() {
             return partitionKey;
         }
+
         public void setPartitionKey(PartitionKey key) {
             this.partitionKey = key;
         }
+
         public long getPartitionId() {
             return partitionId;
         }
+
         public void setPartitionId(long partitionId) {
             this.partitionId = partitionId;
         }
@@ -83,6 +90,7 @@ public class PartitionRange {
         public PartitionKeyType getCacheKey() {
             return cacheKey;
         }
+
         public void setCacheKey(PartitionKeyType cacheKey) {
             this.cacheKey.clone(cacheKey);
         }
@@ -90,33 +98,40 @@ public class PartitionRange {
         public boolean isFromCache() {
             return fromCache;
         }
+
         public void setFromCache(boolean fromCache) {
             this.fromCache = fromCache;
         }
-        public boolean isTooNew(){
+
+        public boolean isTooNew() {
             return tooNew;
         }
+
         public void setTooNew(boolean tooNew) {
             this.tooNew = tooNew;
         }
-        public PartitionSingle(){
+
+        public PartitionSingle() {
             this.partitionId = 0;
             this.cacheKey = new PartitionKeyType();
             this.fromCache = false;
             this.tooNew = false;
         }
+
         public void Debug() {
-            if (partition!=null) {
-                LOG.info("partition id:{}, cacheKey:{}, version:{}, time:{}, fromCache:{}, tooNew:{} ", partitionId, cacheKey.realValue(),
-                    partition.getVisibleVersion(), partition.getVisibleVersionTime(), fromCache, tooNew);
+            if (partition != null) {
+                LOG.info("partition id {}, cacheKey {}, version {}, time {}, fromCache {}, tooNew {} ",
+                        partitionId, cacheKey.realValue(),
+                        partition.getVisibleVersion(), partition.getVisibleVersionTime(),
+                        fromCache, tooNew);
             } else {
-                LOG.info("partition id:{}, cacheKey:{}, fromCache:{}, tooNew:{} ", partitionId, cacheKey.realValue(),
-                    fromCache, tooNew);
+                LOG.info("partition id {}, cacheKey {}, fromCache {}, tooNew {} ", partitionId,
+                        cacheKey.realValue(), fromCache, tooNew);
             }
         }
     }
 
-    public enum KeyType{
+    public enum KeyType {
         DEFAULT,
         LONG,
         DATE,
@@ -224,7 +239,6 @@ public class PartitionRange {
         }
     }
 
-
     private CompoundPredicate partitionKeyPredicate;
     private OlapTable olapTable;
     private RangePartitionInfo rangePartitionInfo;
@@ -256,7 +270,8 @@ public class PartitionRange {
     public PartitionRange() {
     }
 
-    public PartitionRange(CompoundPredicate partitionKeyPredicate, OlapTable olapTable, RangePartitionInfo rangePartitionInfo) {
+    public PartitionRange(CompoundPredicate partitionKeyPredicate, OlapTable olapTable,
+                          RangePartitionInfo rangePartitionInfo) {
         this.partitionKeyPredicate = partitionKeyPredicate;
         this.olapTable = olapTable;
         this.rangePartitionInfo = rangePartitionInfo;
@@ -274,7 +289,9 @@ public class PartitionRange {
         partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
         PartitionColumnFilter filter = createPartitionFilter(this.partitionKeyPredicate, partitionColumn);
         try {
-            getPartitionKeyRange(filter, partitionColumn);
+            if (!buildPartitionKeyRange(filter, partitionColumn)) {
+                return false;
+            }
             getTablePartitionList(olapTable);
         } catch (AnalysisException e) {
             LOG.warn("get partition range failed, because:", e);
@@ -296,16 +313,16 @@ public class PartitionRange {
         return find;
     }
 
-    public boolean setTooNewByID(long partitionID) {
+    public boolean setTooNewByID(long partitionId) {
         boolean find = false;
         for (PartitionSingle single : partitionSingleList) {
-            if (single.getPartition().getId() == partitionID) {
+            if (single.getPartition().getId() == partitionId) {
                 single.setTooNew(true);
                 find = true;
                 break;
             }
         }
-        LOG.info("set partition {} too new {}", partitionID, find);
+        LOG.info("set partition {} too new {}", partitionId, find);
         return find;
     }
     
@@ -423,7 +440,7 @@ public class PartitionRange {
                 } else if( key.keyType == KeyType.LONG){
                     newLiteral = new IntLiteral(key.realValue());
                 }else{
-                    LOG.warn("Partition cache not support type {}.", key.keyType);
+                    LOG.warn("Partition cache not support type {}", key.keyType);
                     continue;
                 }
 
@@ -454,19 +471,19 @@ public class PartitionRange {
      * PARTITION p20200102 VALUES [("20200102"), ("20200103")) )
      */
     private void getTablePartitionList(OlapTable table) {
-        Map<Long, Range<PartitionKey>>  range =  rangePartitionInfo.getIdToRange();
-        for(Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getIdToRange().entrySet() ) {
+        Map<Long, Range<PartitionKey>> range = rangePartitionInfo.getIdToRange();
+        for (Map.Entry<Long, Range<PartitionKey>> entry : range.entrySet()) {
             Long partId = entry.getKey();
-            for(PartitionSingle single : partitionSingleList) {
+            for (PartitionSingle single : partitionSingleList) {
                 if (entry.getValue().contains(single.getPartitionKey())) {
-                    if( single.getPartitionId() == 0) {
+                    if (single.getPartitionId() == 0) {
                         single.setPartitionId(partId);
                     }
                 }
             }
         }
-        
-        for(PartitionSingle single : partitionSingleList) {
+
+        for (PartitionSingle single : partitionSingleList) {
             single.setPartition(table.getPartition(single.getPartitionId()));
         }
     }
@@ -474,11 +491,11 @@ public class PartitionRange {
     /**
      * Get value range of partition column from predicate
      */
-    private void getPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
+    private boolean buildPartitionKeyRange(PartitionColumnFilter partitionColumnFilter,
         Column partitionColumn) throws AnalysisException {
         if (partitionColumnFilter.lowerBound == null || partitionColumnFilter.upperBound == null) {
             LOG.info("filter is null");
-            return;
+            return false;
         }
         PartitionKeyType begin = new PartitionKeyType();
         PartitionKeyType end = new PartitionKeyType();
@@ -492,11 +509,16 @@ public class PartitionRange {
             end.add(-1);
         }
         if (begin.realValue() > end.realValue()) {
-            LOG.info("partition range begin:{}, end{}", begin, end);
-            return;
+            LOG.info("partition range begin {}, end {}", begin, end);
+            return false;
         }
-    
-        LOG.info("partition range begin:{}, end:{}", begin.toString(), end.toString());
+
+        if (end.realValue() - begin.realValue() > Config.cache_result_max_row_count) {
+            LOG.info("partition key range is too large, begin {}, end {}", begin.realValue(), end.realValue());
+            return false;
+        }
+
+        LOG.info("partition range begin {}, end {}", begin.toString(), end.toString());
         while (begin.realValue() <= end.realValue()) {
             PartitionKey key = PartitionKey.createPartitionKey(
                     Lists.newArrayList(new PartitionValue(begin.toString())),
@@ -507,6 +529,7 @@ public class PartitionRange {
             partitionSingleList.add(single);
             begin.add(1);
         }
+        return true;
     }
 
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,

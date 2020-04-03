@@ -64,7 +64,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheModel;
-import org.apache.doris.qe.cache.CacheProxy;
+import org.apache.doris.qe.cache.CacheBeProxy;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
@@ -548,25 +548,22 @@ public class StmtExecutor {
         // if python's MysqlDb get error after sendfields, it can't catch the excpetion
         // so We need to send fields after first batch arrived
 
-        //Get result
+        //get result
         RowBatch batch = null;
         MysqlChannel channel = context.getMysqlChannel();
         sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
 
-        //Get rowbatch from cache
+        //get rowbatch from cache
         if (Config.enable_sql_cache || Config.enable_partition_cache) {
-            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, this, analyzer, planner);
-            CacheProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCache();
+            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context.queryId(),parsedStmt,planner);
+            CacheBeProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
             CacheModel model = cacheAnalyzer.getCacheModel();
-            int idx = 0;
             if (cacheResult != null) {
-                for (CacheProxy.CacheValue value : cacheResult.getValueList()) {
+                for (CacheBeProxy.CacheValue value : cacheResult.getValueList()) {
                     batch = value.getRowBatch();
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
-                        idx ++;
-                        LOG.info("row idx {} from cache", idx);
-                    } 
+                    }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (model == CacheModel.Sql) {
@@ -590,15 +587,12 @@ public class StmtExecutor {
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt, coord));
             coord.exec();
-            idx = 0;
             while (true) {
                 batch = coord.getNext();
                 if (batch.getBatch() != null) {
                     cacheAnalyzer.copyRowBatch(batch);
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
-                        idx ++;
-                        LOG.info("row idx {} from be", idx);
                     }
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }

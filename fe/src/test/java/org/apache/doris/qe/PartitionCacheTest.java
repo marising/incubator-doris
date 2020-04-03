@@ -19,94 +19,45 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.qe.CacheTestDB;
+import org.apache.doris.qe.cache.CacheCoordinator;
+import org.apache.doris.qe.cache.PartitionCache;
 import org.apache.doris.qe.cache.PartitionRange;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheModel;
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.KillStmt;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.ShowAuthorStmt;
-import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.qe.cache.CachePartition;
-import org.apache.doris.qe.cache.CacheProxy;
-import org.apache.doris.qe.cache.PartitionRange;
+import org.apache.doris.qe.cache.CacheCoordinator;
 import org.apache.doris.qe.cache.RowBatchBuilder;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.system.Backend;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.system.SystemInfoService;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
-
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
 import java.util.List;
-import java.util.SortedMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import java_cup.runtime.Symbol;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
@@ -161,7 +112,7 @@ public class PartitionCacheTest {
     
     @Test
     public void testCachePartition() throws Exception {
-        CachePartition cp = CachePartition.getInstance();
+        CacheCoordinator cp = CacheCoordinator.getInstance();
         cp.DebugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
         bd1.updateOnce(0,0,0);
@@ -193,8 +144,8 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(0);
-        Assert.assertEquals(cm, CacheModel.Sql);
+        ca.checkCacheModel(0);
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Sql);
     }
     
     @Test
@@ -204,8 +155,8 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createProfileScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579024800000L); //2020-1-15 02:00:00
-        Assert.assertEquals(cm, CacheModel.None);
+        ca.checkCacheModel(1579024800000L); //2020-1-15 02:00:00
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.None);
     }
 
     @Test
@@ -215,8 +166,8 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);
+        ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);
     }
 
     @Test
@@ -238,14 +189,14 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createOrderScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L);     //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);                //assert cache model first
-
+        ca.checkCacheModel(1579053661000L);                         //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);    //assert cache model first
         try {
-            ca.rewriteSelectStmt(null);
-            Assert.assertEquals(ca.getNokeyStmt().getWhereClause(), null);
+            PartitionCache cache = (PartitionCache) ca.getCache();
+            cache.rewriteSelectStmt(null);
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
 
-            PartitionRange range = ca.getPartitionRange();
+            PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
             Assert.assertEquals(flag, true);
 
@@ -258,7 +209,7 @@ public class PartitionCacheTest {
             range.setCacheFlag(20200113L);    //get data from cache
 
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
-            ca.rewriteSelectStmt(newRangeList);
+            cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             Assert.assertEquals(sql, "(`date` >= 20200114) AND (`date` <= 20200115)");
         } catch (Exception e) {
@@ -274,15 +225,16 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+        ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);      //assert cache model first
         SelectStmt selectStmt = (SelectStmt) parseStmt;
 
         try{
-            ca.rewriteSelectStmt(null);
-            Assert.assertEquals(ca.getNokeyStmt().getWhereClause(),null);
+            PartitionCache cache = (PartitionCache) ca.getCache();
+            cache.rewriteSelectStmt(null);
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause(),null);
 
-            PartitionRange range = ca.getPartitionRange();
+            PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
@@ -294,8 +246,8 @@ public class PartitionCacheTest {
             range.setCacheFlag(20200112L);    //get data from cache
             range.setCacheFlag(20200113L);    //get data from cache
 
-            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();            
-            ca.rewriteSelectStmt(newRangeList);
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+            cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             Assert.assertEquals(sql,"(`eventdate` >= '2020-01-14') AND (`eventdate` <= '2020-01-15')");
         } catch(Exception e){
@@ -311,14 +263,16 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+        ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);      //assert cache model first
 
         try {
-            ca.rewriteSelectStmt(null);
-            Assert.assertEquals(ca.getNokeyStmt().getWhereClause(), null);
+            PartitionCache cache = (PartitionCache) ca.getCache();
 
-            PartitionRange range = ca.getPartitionRange();
+            cache.rewriteSelectStmt(null);
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
+
+            PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
             Assert.assertEquals(flag, true);
 
@@ -332,7 +286,7 @@ public class PartitionCacheTest {
 
             List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
             Assert.assertEquals(newRangeList.size(), 2);
-            ca.rewriteSelectStmt(newRangeList);
+            cache.rewriteSelectStmt(newRangeList);
 
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             Assert.assertEquals(sql, "(`eventdate` >= '2020-01-13') AND (`eventdate` <= '2020-01-15')");
@@ -353,14 +307,16 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+        ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);      //assert cache model first
         try{
-            ca.rewriteSelectStmt(null);
-            LOG.warn("Nokey multi={}", ca.getNokeyStmt().getWhereClause().toSql());
-            Assert.assertEquals(ca.getNokeyStmt().getWhereClause().toSql(),"`eventid` = 1");
+            PartitionCache cache = (PartitionCache) ca.getCache();
 
-            PartitionRange range = ca.getPartitionRange();
+            cache.rewriteSelectStmt(null);
+            LOG.warn("Nokey multi={}", cache.getNokeyStmt().getWhereClause().toSql());
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause().toSql(),"`eventid` = 1");
+
+            PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
@@ -371,9 +327,9 @@ public class PartitionCacheTest {
             range.setCacheFlag(20200112L);    //get data from cache
             range.setCacheFlag(20200113L);    //get data from cache
 
-            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();           
- 
-            ca.rewriteSelectStmt(newRangeList);
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+
+            cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("MultiPredicate={}", sql);                
             Assert.assertEquals(sql,"((`eventdate` > '2020-01-13') AND (`eventdate` < '2020-01-16')) AND (`eventid` = 1)");
@@ -393,14 +349,15 @@ public class PartitionCacheTest {
         );
         List<ScanNode> scanNodes = Lists.newArrayList(testDB.createEventScanNode());
         CacheAnalyzer ca = new CacheAnalyzer(parseStmt, scanNodes);
-        CacheModel cm = ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(cm, CacheModel.Partition);      //assert cache model first
+        ca.checkCacheModel(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheModel(), CacheModel.Partition);      //assert cache model first
         try{
-            ca.rewriteSelectStmt(null);
-            LOG.warn("Join nokey={}", ca.getNokeyStmt().getWhereClause().toSql());
-            Assert.assertEquals(ca.getNokeyStmt().getWhereClause().toSql(),"`eventid` = 1");
+            PartitionCache cache = (PartitionCache) ca.getCache();
+            cache.rewriteSelectStmt(null);
+            LOG.warn("Join nokey={}", cache.getNokeyStmt().getWhereClause().toSql());
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause().toSql(),"`eventid` = 1");
 
-            PartitionRange range = ca.getPartitionRange();
+            PartitionRange range = cache.getPartitionRange();
             boolean flag = range.analytics();
             Assert.assertEquals(flag,true);
 
@@ -411,9 +368,9 @@ public class PartitionCacheTest {
             range.setCacheFlag(20200112L);    //get data from cache
             range.setCacheFlag(20200113L);    //get data from cache
 
-            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();           
- 
-            ca.rewriteSelectStmt(newRangeList);
+            List<PartitionRange.PartitionSingle> newRangeList = range.newPartitionRange();
+
+            cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("Join rewrite={}", sql);                
             Assert.assertEquals(sql,"((`appevent`.`eventdate` >= '2020-01-14')" +

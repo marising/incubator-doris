@@ -35,24 +35,26 @@ import java.util.List;
 public class RowBatchBuilder {
     private static final Logger LOG = LogManager.getLogger(RowBatchBuilder.class);
 
-    private CacheProxy.UpdateCacheRequest updateRequest;
+    private CacheBeProxy.UpdateCacheRequest updateRequest;
     private CacheAnalyzer.CacheModel cacheModel;
     private int keyIndex;
     private Type keyType;
-    private HashMap<Long, PartitionRange.PartitionSingle> partMap;
+    private HashMap<Long, PartitionRange.PartitionSingle> cachePartMap;
     private List<byte[]> rowList;
     private int batchSize;
     private int rowSize;
     private int dataSize;
 
-    public int getRowSize() { return rowSize; }
+    public int getRowSize() {
+        return rowSize;
+    }
 
     public RowBatchBuilder(CacheAnalyzer.CacheModel model) {
         cacheModel = model;
         keyIndex = 0;
         keyType = Type.INVALID;
         rowList = Lists.newArrayList();
-        partMap = new HashMap<>();
+        cachePartMap = new HashMap<>();
         batchSize = 0;
         rowSize = 0;
         dataSize = 0;
@@ -75,39 +77,40 @@ public class RowBatchBuilder {
         if (newSingleList != null) {
             for (PartitionRange.PartitionSingle single : newSingleList) {
                 single.Debug();
-                partMap.put(single.getCacheKey().realValue(), single);
+                cachePartMap.put(single.getCacheKey().realValue(), single);
             }
         } else {
-            LOG.info("no new partition single list.");
+            LOG.info("no new partition single list ");
         }
 
-        LOG.info("part name:{}, index:{}, type:{}, result index:{}, range size:{} ", 
-                partColumn.getName(), keyIndex, keyType, partMap.size());
+        LOG.info("part name {}, index {}, type {}, result index {}, cache range size {} ",
+                partColumn.getName(), keyIndex, keyType, cachePartMap.size());
     }
 
     public void copyRowData(RowBatch rowBatch) {
-        batchSize ++;
+        batchSize++;
         rowSize += rowBatch.getBatch().getRowsSize();
         for (ByteBuffer buf : rowBatch.getBatch().getRows()) {
             byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
             dataSize += bytes.length;
             rowList.add(bytes);
-            LOG.info("set row:{}", bytes);
+            LOG.info("set row {}", bytes);
         }
     }
 
-    public void buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
+    public CacheBeProxy.UpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {
-            updateRequest = new CacheProxy.UpdateCacheRequest(sql);
+            updateRequest = new CacheBeProxy.UpdateCacheRequest(sql);
         }
         updateRequest.addValue(partitionKey, lastVersion, lastestTime, rowList);
-        LOG.info("build sql update request, sql_key:{}, batch:{}, row:{}, data:{}",
+        LOG.info("build sql update request, sql_key {}, batch {}, row {}, data {}",
                 DebugUtil.printId(updateRequest.sql_key),
                 batchSize, rowSize, dataSize);
+        return updateRequest;
     }
 
 
-    public PartitionRange.PartitionKeyType getKeyFromRow(byte[] row,int index,Type type) {
+    public PartitionRange.PartitionKeyType getKeyFromRow(byte[] row, int index, Type type) {
         PartitionRange.PartitionKeyType key = new PartitionRange.PartitionKeyType();
         ByteBuffer buf = ByteBuffer.wrap(row);
         int len;
@@ -119,7 +122,7 @@ public class RowBatchBuilder {
             if (i == index) {
                 byte[] content = Arrays.copyOfRange(buf.array(), buf.position(), buf.position() + len);
                 String str = new String(content);
-                LOG.info("row pos {},len {},cont {},str {}", buf.position(), len, content, str);
+                LOG.info("row pos {}, len {}, cont {}, str {}", buf.position(), len, content, str);
                 key.init(type, str.toString());
             }
         }
@@ -127,48 +130,41 @@ public class RowBatchBuilder {
     }
 
     /**
-     * Rowbatch split to TResultData
+     * Rowbatch split to Row
      */
-    public void buildPartitionUpdateRequest(String sql) {
+    public CacheBeProxy.UpdateCacheRequest buildPartitionUpdateRequest(String sql) {
         if (updateRequest == null) {
-            updateRequest = new CacheProxy.UpdateCacheRequest(sql);
+            updateRequest = new CacheBeProxy.UpdateCacheRequest(sql);
         }
         HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
         List<byte[]> partitionRowList;
-        PartitionRange.PartitionKeyType partKey;
+        PartitionRange.PartitionKeyType cacheKey;
         for (byte[] row : rowList) {
-            partKey = getKeyFromRow(row, keyIndex, keyType);
-            if (!partRowMap.containsKey(partKey.realValue())) {
+            cacheKey = getKeyFromRow(row, keyIndex, keyType);
+            if (!cachePartMap.containsKey(cacheKey)) {
+                LOG.info("cant find partition key {}", cacheKey);
+                continue;
+            }
+            if (!partRowMap.containsKey(cacheKey.realValue())) {
                 partitionRowList = Lists.newArrayList();
                 partitionRowList.add(row);
-                partRowMap.put(partKey.realValue(), partitionRowList);
+                partRowMap.put(cacheKey.realValue(), partitionRowList);
             } else {
-                partRowMap.get(partKey).add(row);
+                partRowMap.get(cacheKey).add(row);
             }
         }
 
         for (HashMap.Entry<Long, List<byte[]>> entry : partRowMap.entrySet()) {
             Long key = entry.getKey();
-            PartitionRange.PartitionSingle partition = partMap.get(key);
-            if (partition == null) {
-                LOG.warn("cant find partition key {}", key);
-                continue;
-            }
+            PartitionRange.PartitionSingle partition = cachePartMap.get(key);
             partitionRowList = entry.getValue();
             updateRequest.addValue(key, partition.getPartition().getVisibleVersion(),
                     partition.getPartition().getVisibleVersionTime(), partitionRowList);
-            LOG.info("build partition update request, sql_key:{}, part_key:{}, row_size:{}",
+            LOG.info("build partition update request, sql_key {}, part_key {}, row_size {}",
                     DebugUtil.printId(updateRequest.sql_key),
                     key,
                     partitionRowList.size());
         }
-    }
-
-    public CacheProxy.UpdateCacheRequest getUpdateRequest() {
         return updateRequest;
-    }
-
-    public void setUpdateRequest(CacheProxy.UpdateCacheRequest updateRequest) {
-        this.updateRequest = updateRequest;
     }
 }

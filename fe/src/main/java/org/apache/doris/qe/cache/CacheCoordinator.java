@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -34,8 +33,8 @@ import java.util.Iterator;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class CachePartition {
-    private static final Logger LOG = LogManager.getLogger(CachePartition.class);
+public class CacheCoordinator {
+    private static final Logger LOG = LogManager.getLogger(CacheCoordinator.class);
     private static final int VIRTUAL_NODES = 10;
     private static final int REFRESH_NODE_TIME = 300000;
     public boolean DebugModel = false;
@@ -44,20 +43,21 @@ public class CachePartition {
     private static Lock belock = new ReentrantLock();
 
     private long lastRefreshTime;
-    private static CachePartition cachePartition;
+    private static CacheCoordinator cachePartition;
 
-    public static CachePartition getInstance() {
+    public static CacheCoordinator getInstance() {
         if (cachePartition == null) {
-            cachePartition = new CachePartition();
+            cachePartition = new CacheCoordinator();
         }
         return cachePartition;
     }
 
-    protected CachePartition() {
+    protected CacheCoordinator() {
     }
 
     /**
      * Using the consistent hash and the hi part of sqlkey to get the backend node
+     *
      * @param sqlKey 128 bit's sql md5
      * @return Backend
      */
@@ -78,8 +78,8 @@ public class CachePartition {
                 virtualNode = tailMap.get(key);
                 if (SimpleScheduler.isAlive(virtualNode)) {
                     break;
-                }else{
-                    LOG.debug("backend {} not alive, key = {}, retry {}", virtualNode.getId(), key, retryTimes);
+                } else {
+                    LOG.debug("backend {} not alive, key {}, retry {}", virtualNode.getId(), key, retryTimes);
                     virtualNode = null;
                 }
                 tailMap = tailMap.tailMap(key + 1);
@@ -89,14 +89,14 @@ public class CachePartition {
                     break;
                 }
             }
-        }finally {
+        } finally {
             belock.unlock();
         }
         return virtualNode;
     }
 
     public void checkBackend() {
-        if( System.currentTimeMillis() - this.lastRefreshTime <  REFRESH_NODE_TIME){
+        if (System.currentTimeMillis() - this.lastRefreshTime < REFRESH_NODE_TIME) {
             return;
         }
         try {
@@ -109,12 +109,12 @@ public class CachePartition {
                 addBackend(backend);
             }
             this.lastRefreshTime = System.currentTimeMillis();
-        }finally {
+        } finally {
             belock.unlock();
         }
     }
 
-    private void clearBackend(ImmutableMap<Long, Backend> idToBackend){
+    private void clearBackend(ImmutableMap<Long, Backend> idToBackend) {
         Iterator<Long> itr = realNodes.keySet().iterator();
         Long bid;
         while (itr.hasNext()) {
@@ -122,7 +122,7 @@ public class CachePartition {
             if (!idToBackend.containsKey(bid)) {
                 for (int i = 0; i < VIRTUAL_NODES; i++) {
                     String nodeName = String.valueOf(bid) + "::" + String.valueOf(i);
-                    PUniqueId nodeId = CacheProxy.getMd5(nodeName);
+                    PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
                     virtualNodes.remove(nodeId.hi);
                     LOG.debug("remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.hi);
                 }
@@ -132,13 +132,13 @@ public class CachePartition {
     }
 
     public void addBackend(Backend backend) {
-        if(realNodes.contains(backend.getId())) {
+        if (realNodes.contains(backend.getId())) {
             return;
         }
         realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
             String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
-            PUniqueId nodeId = CacheProxy.getMd5(nodeName);
+            PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
             virtualNodes.put(nodeId.hi, backend);
             LOG.debug("add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
