@@ -91,8 +91,9 @@ public class CacheBeProxy extends CacheProxy {
                     throw new TimeoutException("query cache timeout");
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+                LOG.info("fetch catch, status {}", fetchResult.status);
                 if (fetchResult.status == PCacheStatus.CACHE_OK) {
-                    status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
+                    status = new Status(TStatusCode.OK, "");
                     result = new FetchCacheResult();
                     result.setResult(fetchResult);
                     result.Debug();

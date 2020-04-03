@@ -19,6 +19,7 @@ package org.apache.doris.qe.cache;
 
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -38,12 +39,12 @@ public class SqlCache extends Cache {
 
     public Status getCacheData(CacheProxy.FetchCacheResult cacheResult) {
         CacheProxy.FetchCacheRequest request;
-        Status status = Status.OK;
+        Status status = new Status();
         request = new CacheProxy.FetchCacheRequest(selectStmt.toSql());
         request.addParam(latestTable.latestId, latestTable.latestVersion,
                 latestTable.latestTime);
         cacheResult = proxy.fetchCache(request, 10000, status);
-        LOG.info("fetch sql cache, msg:{}", status.getErrorMsg());
+        LOG.info("fetch sql cache, msg {}, cache result {}", status.getErrorMsg(), cacheResult != null);
         if (status.ok() && cacheResult != null) {
             MetricRepo.COUNTER_CACHE_SQL.increase(1L);
         }
@@ -72,6 +73,7 @@ public class SqlCache extends Cache {
         CacheBeProxy proxy = new CacheBeProxy();
         Status status = new Status();
         proxy.updateCache(updateRequest, status);
-        LOG.info("update cache model {}, queryid {}, ", CacheAnalyzer.CacheModel.Sql, queryId);
+        LOG.info("update cache model {}, queryid {}, sqlkey {}", CacheAnalyzer.CacheModel.Sql, DebugUtil.printId(queryId), 
+            DebugUtil.printId(updateRequest.sql_key));
     }
 }

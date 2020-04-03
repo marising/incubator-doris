@@ -222,11 +222,11 @@ public class CacheAnalyzer {
             return cacheResult;
         }
         Status status = new Status();
-        if (cacheModel == CacheModel.Sql) {
-            status = cache.getCacheData(cacheResult);
-        } else if (cacheModel == CacheModel.Partition) {
-            status = cache.getCacheData(cacheResult);
-        }
+        status = cache.getCacheData(cacheResult);
+        LOG.info("cache model {}, queryid {}, status code {}, msg {} ", cacheModel, DebugUtil.printId(queryId), status.getErrorCode(),
+            status.getErrorMsg());
+        LOG.info("status is ok {}, cacheResult != null {}", status.ok(), cacheResult != null);
+
         if (status.ok() && cacheResult != null) {
             LOG.info("hit cache, model {}, queryid {}, value size {}, row count {}, data size {}",
                     cacheModel, DebugUtil.printId(queryId),
