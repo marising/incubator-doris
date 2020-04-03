@@ -68,16 +68,15 @@ public class PartitionCache extends Cache {
         this.partitionPredicate = partitionPredicate;
     }
 
-    public Status getCacheData(CacheProxy.FetchCacheResult cacheResult) {
+    public CacheProxy.FetchCacheResult getCacheData(Status status) {
         CacheProxy.FetchCacheRequest request;
-        Status status = new Status();
         rewriteSelectStmt(null);
         request = new CacheBeProxy.FetchCacheRequest(nokeyStmt.toSql());
         range = new PartitionRange(this.partitionPredicate, this.olapTable,
                 this.partitionInfo);
         if (!range.analytics()) {
             status.setStatus("analytics range error");
-            return status;
+            return null;
         }
 
         for (PartitionRange.PartitionSingle single : range.getPartitionSingleList()) {
@@ -86,8 +85,9 @@ public class PartitionCache extends Cache {
                     single.getPartition().getVisibleVersionTime()
             );
         }
-        cacheResult = proxy.fetchCache(request, 10000, status);
-        LOG.info("fetch partition cache, msg:{}", status.getErrorMsg());
+
+        CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
+        LOG.info("fetch partition cache, msg {}", status.getErrorMsg());
         if (cacheResult != null) {
             for (CacheBeProxy.CacheValue value : cacheResult.getValueList()) {
                 range.setCacheFlag(value.param.partition_key);
@@ -96,11 +96,12 @@ public class PartitionCache extends Cache {
             MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getPartitionSingleList().size());
             MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
         }
+
         range.setTooNewByID(latestTable.latestId);
         newRangeList = range.newPartitionRange();
         rewriteSelectStmt(newRangeList);
-        LOG.info("rewrite sql:{}", rewriteStmt.toSql());
-        return status;
+        LOG.info("rewrite sql {}", rewriteStmt.toSql());
+        return cacheResult;
     }
 
     public void copyRowBatch(RowBatch rowBatch) {

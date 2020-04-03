@@ -222,9 +222,9 @@ public class CacheAnalyzer {
             return cacheResult;
         }
         Status status = new Status();
-        status = cache.getCacheData(cacheResult);
+        cacheResult = cache.getCacheData(status);
         LOG.info("cache model {}, queryid {}, status code {}, msg {} ", cacheModel, DebugUtil.printId(queryId), status.getErrorCode(),
-            status.getErrorMsg());
+                status.getErrorMsg());
         LOG.info("status is ok {}, cacheResult != null {}", status.ok(), cacheResult != null);
 
         if (status.ok() && cacheResult != null) {

@@ -43,7 +43,7 @@ public abstract class Cache {
         this.selectStmt = selectStmt;
     }
 
-    public abstract Status getCacheData(CacheProxy.FetchCacheResult cacheResult);
+    public abstract CacheProxy.FetchCacheResult getCacheData(Status status);
 
     public abstract SelectStmt getRewriteStmt();
 

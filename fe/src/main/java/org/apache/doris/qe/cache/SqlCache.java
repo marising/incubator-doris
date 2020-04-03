@@ -37,18 +37,16 @@ public class SqlCache extends Cache {
         this.latestTable = latestTable;
     }
 
-    public Status getCacheData(CacheProxy.FetchCacheResult cacheResult) {
-        CacheProxy.FetchCacheRequest request;
-        Status status = new Status();
-        request = new CacheProxy.FetchCacheRequest(selectStmt.toSql());
+    public CacheProxy.FetchCacheResult getCacheData(Status status) {
+        CacheProxy.FetchCacheRequest request = new CacheProxy.FetchCacheRequest(selectStmt.toSql());
         request.addParam(latestTable.latestId, latestTable.latestVersion,
                 latestTable.latestTime);
-        cacheResult = proxy.fetchCache(request, 10000, status);
+        CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         LOG.info("fetch sql cache, msg {}, cache result {}", status.getErrorMsg(), cacheResult != null);
         if (status.ok() && cacheResult != null) {
             MetricRepo.COUNTER_CACHE_SQL.increase(1L);
         }
-        return status;
+        return cacheResult;
     }
 
     public SelectStmt getRewriteStmt() {
