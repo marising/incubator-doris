@@ -31,6 +31,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,8 +56,14 @@ public class CacheBeProxy extends CacheProxy {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
             request.Debug();
             Future<PCacheResponse> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
-        } catch (RpcException e) {
-            LOG.warn("update cache rpc exception, sqlKey {}, e {}", sqlKey, e);
+            PCacheResponse response = future.get(10000,TimeUnit.MICROSECONDS);
+            if( response.status == PCacheStatus.CACHE_OK) {
+                status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
+            }else {
+                status.setStatus(response.status.toString());
+            }
+        } catch (Exception e) {
+            LOG.warn("update cache exception, sqlKey {}, e {}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId());
         } finally {
@@ -84,15 +91,17 @@ public class CacheBeProxy extends CacheProxy {
                     throw new TimeoutException("query cache timeout");
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                if (fetchResult.status != PCacheStatus.CACHE_OK) {
+                if (fetchResult.status == PCacheStatus.CACHE_OK) {
+                    status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
+                    result = new FetchCacheResult();
+                    result.setResult(fetchResult);
+                    result.Debug();
+                    return result;
+                } else {
                     LOG.info("fetch catch null, status {}", fetchResult.status);
+                    status.setStatus(fetchResult.status.toString());
                     return null;
                 }
-                result = new FetchCacheResult();
-                result.setResult(fetchResult);
-                result.Debug();
-                status.setStatus(TStatusCode.OK);
-                return result;
             }
         } catch (RpcException e) {
             LOG.warn("fetch catch rpc exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
@@ -112,12 +121,21 @@ public class CacheBeProxy extends CacheProxy {
         return result;
     }
 
+    public void clearCache(PClearCacheRequest request) {
+        this.clearCache(request, CacheCoordinator.getInstance().getBackendList());
+    }
+
     public void clearCache(PClearCacheRequest request, List<Backend> beList) {
         int retry;
+        Status status = new Status();
         for (Backend backend : beList) {
             retry = 1;
-            while (retry < 3 && !this.clearCache(request, backend)) {
+            while (retry < 3 && !this.clearCache(request, backend, status)) {
                 retry++;
+                try {
+                    Thread.sleep(1000); //sleep 1 second
+                } catch (Exception e){
+                }
             }
             if (retry >= 3) {
                 LOG.warn("clear cache timeout, backend {}", backend.getId());
@@ -126,16 +144,22 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    protected boolean clearCache(PClearCacheRequest request, Backend backend) {
+    protected boolean clearCache(PClearCacheRequest request, Backend backend, Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             request.clear_type = 0;
             LOG.info("clear all backend cache, backendId {}", backend.getId());
             Future<PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
-            return true;
-        } catch (RpcException e) {
-            LOG.warn("clear cache rpc exception, backendId {}", backend.getId(), e);
-            SimpleScheduler.addToBlacklist(backend.getId());
+            PCacheResponse response = future.get(10000, TimeUnit.MICROSECONDS);
+            if (response.status == PCacheStatus.CACHE_OK) {
+                status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
+                return true;
+            } else {
+                status.setStatus(response.status.toString());
+                return false;
+            }
+        } catch (Exception e) {
+            LOG.warn("clear cache exception, backendId {}", backend.getId(), e);
         } finally {
         }
         return false;

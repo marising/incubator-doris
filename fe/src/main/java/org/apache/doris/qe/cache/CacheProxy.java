@@ -28,7 +28,6 @@ import org.apache.doris.proto.PFetchCacheResult;
 import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.proto.PUpdateCacheRequest;
 import org.apache.doris.qe.RowBatch;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -272,9 +271,7 @@ public abstract class CacheProxy {
 
     public abstract FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status);
 
-    public abstract void clearCache(PClearCacheRequest request, List<Backend> beList);
-
-    protected abstract boolean clearCache(PClearCacheRequest request, Backend backend);
+    public abstract void clearCache(PClearCacheRequest clearRequest);
 
 
     public static PUniqueId getMd5(String str) {

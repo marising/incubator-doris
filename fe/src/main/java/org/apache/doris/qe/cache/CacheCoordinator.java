@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -26,7 +27,9 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.Iterator;
@@ -142,5 +145,13 @@ public class CacheCoordinator {
             virtualNodes.put(nodeId.hi, backend);
             LOG.debug("add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
         }
+    }
+
+    public List<Backend> getBackendList() {
+        List<Backend> backendList = Lists.newArrayList();
+        for (HashMap.Entry<Long, Backend> entry : realNodes.entrySet()) {
+            backendList.add(entry.getValue());
+        }
+        return backendList;
     }
 }
