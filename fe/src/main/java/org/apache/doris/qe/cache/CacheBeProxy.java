@@ -91,6 +91,7 @@ public class CacheBeProxy extends CacheProxy {
                 result = new FetchCacheResult();
                 result.setResult(fetchResult);
                 result.Debug();
+                status.setStatus(TStatusCode.OK);
                 return result;
             }
         } catch (RpcException e) {

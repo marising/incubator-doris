@@ -83,7 +83,7 @@ public class RowBatchBuilder {
             LOG.info("no new partition single list ");
         }
 
-        LOG.info("part name {}, index {}, type {}, result index {}, cache range size {} ",
+        LOG.info("update part name {}, index {}, type {}, cache range size {} ",
                 partColumn.getName(), keyIndex, keyType, cachePartMap.size());
     }
 
@@ -141,8 +141,8 @@ public class RowBatchBuilder {
         PartitionRange.PartitionKeyType cacheKey;
         for (byte[] row : rowList) {
             cacheKey = getKeyFromRow(row, keyIndex, keyType);
-            if (!cachePartMap.containsKey(cacheKey)) {
-                LOG.info("cant find partition key {}", cacheKey);
+            if (!cachePartMap.containsKey(cacheKey.realValue())) {
+                LOG.info("cant find partition key {}", cacheKey.realValue());
                 continue;
             }
             if (!partRowMap.containsKey(cacheKey.realValue())) {

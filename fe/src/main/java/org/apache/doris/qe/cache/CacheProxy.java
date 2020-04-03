@@ -239,7 +239,7 @@ public abstract class CacheProxy {
                 valueList.add(value);
                 row_count += value.row.size();
                 data_size += value.data_size;
-                LOG.info("fetch cache, row {}, size {}", i, rpcValue.data_size);
+                LOG.info("fetch cache {},row {}, size {}", i, value.row.size(), rpcValue.data_size);
             }
         }
 
