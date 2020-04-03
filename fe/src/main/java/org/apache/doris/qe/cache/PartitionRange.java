@@ -428,7 +428,6 @@ public class PartitionRange {
                     default:
                         break;
                 }
-                LOG.info("op {}, val {}, type {}", op.toString(), key.realValue(), key.keyType);
                 LiteralExpr newLiteral;
                 if( key.keyType == KeyType.DATE) {
                     try {

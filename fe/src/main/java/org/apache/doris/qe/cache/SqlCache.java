@@ -42,7 +42,6 @@ public class SqlCache extends Cache {
         request.addParam(latestTable.latestId, latestTable.latestVersion,
                 latestTable.latestTime);
         CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
-        LOG.info("fetch sql cache, msg {}, cache result {}", status.getErrorMsg(), cacheResult != null);
         if (status.ok() && cacheResult != null) {
             MetricRepo.COUNTER_CACHE_SQL.increase(1L);
         }

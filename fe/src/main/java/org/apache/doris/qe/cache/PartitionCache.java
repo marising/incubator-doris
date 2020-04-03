@@ -87,14 +87,15 @@ public class PartitionCache extends Cache {
         }
 
         CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
-        LOG.info("fetch partition cache, msg {}", status.getErrorMsg());
-        if (cacheResult != null) {
+        if (status.ok() && cacheResult != null) {
             for (CacheBeProxy.CacheValue value : cacheResult.getValueList()) {
                 range.setCacheFlag(value.param.partition_key);
             }
             MetricRepo.COUNTER_CACHE_PARTITION.increase(1L);
             MetricRepo.COUNTER_PARTITION_ALL.increase((long) range.getPartitionSingleList().size());
             MetricRepo.COUNTER_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
+            LOG.info("partition all count {}, hit count {}", range.getPartitionSingleList().size(),
+                    cacheResult.getValueList().size());
         }
 
         range.setTooNewByID(latestTable.latestId);

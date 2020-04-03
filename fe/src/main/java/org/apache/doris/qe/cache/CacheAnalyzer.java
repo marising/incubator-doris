@@ -217,23 +217,20 @@ public class CacheAnalyzer {
     public CacheBeProxy.FetchCacheResult getCacheData() {
         CacheProxy.FetchCacheResult cacheResult = null;
         cacheModel = innerCheckCacheModel(0);
-        LOG.info("cache model {}, queryid {}", cacheModel, DebugUtil.printId(queryId));
+        LOG.info("check cache model {}, queryid {}", cacheModel, DebugUtil.printId(queryId));
         if (cacheModel == CacheModel.None) {
             return cacheResult;
         }
         Status status = new Status();
         cacheResult = cache.getCacheData(status);
-        LOG.info("cache model {}, queryid {}, status code {}, msg {} ", cacheModel, DebugUtil.printId(queryId), status.getErrorCode(),
-                status.getErrorMsg());
-        LOG.info("status is ok {}, cacheResult != null {}", status.ok(), cacheResult != null);
 
         if (status.ok() && cacheResult != null) {
             LOG.info("hit cache, model {}, queryid {}, value size {}, row count {}, data size {}",
                     cacheModel, DebugUtil.printId(queryId),
                     cacheResult.value_count, cacheResult.row_count, cacheResult.data_size);
         } else {
-            LOG.info("miss cache, model {}, queryid {}, err msg {}", cacheModel, DebugUtil.printId(queryId),
-                    status.getErrorMsg());
+            LOG.info("miss cache, model {}, queryid {}, code {}, msg {}", cacheModel,
+                    DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());
             cacheResult = null;
         }
         return cacheResult;
@@ -300,8 +297,8 @@ public class CacheAnalyzer {
                 slot = (SlotRef) expr.getChild(0);
             }
         }
+
         if (slot != null) {
-            LOG.info("slot column name {}", slot.getColumnName());
             return slot.getColumnName();
         } else {
             LOG.info("predicate {}", predicate.toString());

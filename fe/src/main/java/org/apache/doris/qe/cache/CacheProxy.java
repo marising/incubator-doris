@@ -34,22 +34,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.util.Arrays;
 import java.util.List;
 
 public abstract class CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheBeProxy.class);
-
-    public static void DebugTResultBatch(TResultBatch batch, String tag) {
-        int idx = 0;
-        LOG.info("TAG {}", tag);
-        for (ByteBuffer row : batch.getRows()) {
-            idx++;
-            byte[] bytes = Arrays.copyOfRange(row.array(), row.position(), row.limit());
-            LOG.info("idx {}, pos {}, remain {}, limit {}, capacity {}, str {}", idx, row.position(), row.remaining(),
-                    row.limit(), row.capacity(), bytes.toString());
-        }
-    }
 
     public static class CacheParam extends PCacheParam {
         public CacheParam(PCacheParam param) {
@@ -73,7 +61,7 @@ public abstract class CacheProxy {
         }
 
         public void Debug() {
-            LOG.info("cache param, part key {}, version {}, time {}",
+            LOG.debug("cache param, part key {}, version {}, time {}",
                     partition_key, last_version, last_version_time);
         }
     }
@@ -124,7 +112,7 @@ public abstract class CacheProxy {
         }
 
         public void Debug() {
-            LOG.info("cache value, partkey {}, ver:{}, time {}, row_num {}, data_size {}",
+            LOG.debug("cache value, partkey {}, ver:{}, time {}, row_num {}, data_size {}",
                     param.partition_key, param.last_version, param.last_version_time,
                     row.size(),
                     data_size);
@@ -170,7 +158,7 @@ public abstract class CacheProxy {
         }
 
         public void Debug() {
-            LOG.info("update cache request, sql_key {}, value_size {}", DebugUtil.printId(sql_key),
+            LOG.debug("update cache request, sql_key {}, value_size {}", DebugUtil.printId(sql_key),
                     valueList.size());
             for (CacheValue value : valueList) {
                 value.Debug();
@@ -205,7 +193,7 @@ public abstract class CacheProxy {
         }
 
         public void Debug() {
-            LOG.info("fetch cache request, sql_key {}, param count {}", DebugUtil.printId(sql_key), paramList.size());
+            LOG.debug("fetch cache request, sql_key {}, param count {}", DebugUtil.printId(sql_key), paramList.size());
             for (CacheParam param : paramList) {
                 param.Debug();
             }
@@ -238,12 +226,12 @@ public abstract class CacheProxy {
                 valueList.add(value);
                 row_count += value.row.size();
                 data_size += value.data_size;
-                LOG.info("fetch cache {},row {}, size {}", i, value.row.size(), rpcValue.data_size);
+                LOG.debug("fetch cache {},row {}, size {}", i, value.row.size(), rpcValue.data_size);
             }
         }
 
         public void Debug() {
-            LOG.info("fetch cache result, value size {}", valueList.size());
+            LOG.debug("fetch cache result, value size {}", valueList.size());
             for (CacheValue value : valueList) {
                 value.Debug();
             }
@@ -256,7 +244,10 @@ public abstract class CacheProxy {
         OUTER
     }
 
-    public CacheProxy getCacheProxy(CacheProxyType type) {
+    protected CacheProxy(){
+    }
+
+    public static CacheProxy getCacheProxy(CacheProxyType type) {
         switch (type) {
             case BE:
                 return new CacheBeProxy();

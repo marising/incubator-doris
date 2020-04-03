@@ -33,14 +33,12 @@ public abstract class Cache {
     protected RowBatchBuilder rowBatchBuilder;
     protected CacheAnalyzer.CacheTable latestTable;
 
-    protected CacheProxy proxy = new CacheBeProxy();
+    protected CacheProxy proxy;
 
-    public Cache() {
-    }
-
-    public Cache(TUniqueId queryId, SelectStmt selectStmt) {
+    protected Cache(TUniqueId queryId, SelectStmt selectStmt) {
         this.queryId = queryId;
         this.selectStmt = selectStmt;
+        proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
     }
 
     public abstract CacheProxy.FetchCacheResult getCacheData(Status status);
