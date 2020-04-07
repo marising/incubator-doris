@@ -113,7 +113,7 @@ public class CacheAnalyzer {
         }
 
         public void Debug() {
-            LOG.info("partition id {}, ver {}, time {}", latestId, latestVersion, latestTime);
+            LOG.info("table {}, partition id {}, ver {}, time {}", olapTable.getName(),latestId, latestVersion, latestTime);
         }
     }
 

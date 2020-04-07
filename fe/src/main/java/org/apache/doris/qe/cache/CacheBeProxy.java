@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.PCacheStatus;
 import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PUpdateCacheRequest;
@@ -91,7 +92,6 @@ public class CacheBeProxy extends CacheProxy {
                     throw new TimeoutException("query cache timeout");
                 }
                 fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                LOG.info("fetch catch, status {}", fetchResult.status);
                 if (fetchResult.status == PCacheStatus.CACHE_OK) {
                     status = new Status(TStatusCode.OK, "");
                     result = new FetchCacheResult();
@@ -99,7 +99,6 @@ public class CacheBeProxy extends CacheProxy {
                     result.Debug();
                     return result;
                 } else {
-                    LOG.info("fetch catch null, status {}", fetchResult.status);
                     status.setStatus(fetchResult.status.toString());
                     return null;
                 }
