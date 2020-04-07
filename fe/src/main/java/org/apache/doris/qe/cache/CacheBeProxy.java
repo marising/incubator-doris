@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.PCacheStatus;
 import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PUpdateCacheRequest;

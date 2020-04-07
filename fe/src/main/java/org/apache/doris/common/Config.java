@@ -943,20 +943,20 @@ public class Config extends ConfigBase {
      * last_version_interval_second xx      60      3600    3600
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static boolean enable_sql_cache = true;
+    public static boolean enable_sql_cache = false;
 
     /*
      * If set to true, fe will get data from be cache.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static boolean enable_partition_cache = true;
+    public static boolean enable_partition_cache = false;
 
     /*
      *  Minimum interval between last version when caching results
      *  This parameter distinguishes between offline and real-time updates
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int last_version_interval_second = 43200;
+    public static int last_version_interval_second = 3600;
 
     /*
      * Set the maximum number of rows that can be cached, default 1000
