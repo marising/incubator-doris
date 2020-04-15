@@ -40,7 +40,7 @@ public class Log4jConfig extends XmlConfiguration {
             "\n" + 
             "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n" + 
             "  <Appenders>\n" + 
-            "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" + 
+            "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.${sys_file_pattern}-%i.log\">\n" +
             "      <PatternLayout charset=\"UTF-8\">\n" + 
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
             "      </PatternLayout>\n" + 
@@ -55,7 +55,7 @@ public class Log4jConfig extends XmlConfiguration {
             "        </Delete>\n" +
             "      </DefaultRolloverStrategy>\n" +
             "    </RollingFile>\n" + 
-            "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\">\n" + 
+            "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.${sys_file_pattern}-%i.log\">\n" +
             "      <PatternLayout charset=\"UTF-8\">\n" + 
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
             "      </PatternLayout>\n" + 
@@ -70,7 +70,7 @@ public class Log4jConfig extends XmlConfiguration {
             "        </Delete>\n" +
             "      </DefaultRolloverStrategy>\n" +
             "    </RollingFile>\n" + 
-            "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i\">\n" + 
+            "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.${audit_file_pattern}-%i.log\">\n" +
             "      <PatternLayout charset=\"UTF-8\">\n" + 
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n" + 
             "      </PatternLayout>\n" + 
