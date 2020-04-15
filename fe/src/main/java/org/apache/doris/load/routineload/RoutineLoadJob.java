@@ -144,6 +144,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected List<String> partitions; // optional
     protected List<ImportColumnDesc> columnDescs; // optional
     protected Expr whereExpr; // optional
+    protected String dataType;
     protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
@@ -377,6 +378,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return columnSeparator;
     }
 
+    public String getDataType() {
+        return dataType;
+    }
+
+    public void setDataType(String dataType) {
+        this.dataType = dataType;
+    }
+
+
     public boolean isStrictMode() {
         String value = jobProperties.get(LoadStmt.STRICT_MODE);
         if (value == null) {
@@ -598,6 +608,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         db.readLock();
         try {
+            planner.setDataType(dataType);
             TExecPlanFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(txnId);
