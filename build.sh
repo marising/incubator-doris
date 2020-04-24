@@ -210,6 +210,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
+    cp -r -p ${DORIS_HOME}/conf/jdwdata.json ${DORIS_OUTPUT}/be/conf/
 fi
 
 echo "***************************************"

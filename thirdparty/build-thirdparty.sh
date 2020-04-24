@@ -646,9 +646,16 @@ build_jsoncpp(){
     cp -rf ./src/lib_json/libjsoncpp.a $TP_INSTALL_DIR/lib
     cp -r ../include/json $TP_DIR/installed/include/
 
-
 }
 
+# avro
+build_avro(){
+    check_if_source_exist $AVRO_SOURCE
+    cd $TP_SOURCE_DIR/$AVRO_SOURCE
+    mkdir -p  $TP_INSTALL_DIR/include/avro
+    cp -rf  lib/* $TP_INSTALL_DIR/lib
+    cp -rf  api/* $TP_INSTALL_DIR/include/avro
+}
 
 build_llvm
 build_libevent
@@ -678,5 +685,7 @@ build_s2
 build_bitshuffle
 build_croaringbitmap
 build_jsoncpp
+build_avro
 
 echo "Finihsed to build all thirdparties"
+

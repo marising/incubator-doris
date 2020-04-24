@@ -498,8 +498,12 @@ namespace config {
     // this is a self protection to avoid too many txns saving in manager
     CONF_Int64(max_runnings_transactions, "2000");
 
-} // namespace config
+    // avro json schema
+    CONF_String(jdwdatafile, "${DORIS_HOME}/conf/jdwdata.json");
+    CONF_Int32(avro_bytes_src_field_index, "8");
+    CONF_Int32(avro_bytes_cur_field_index, "9");
 
+} // namespace config
 } // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H
