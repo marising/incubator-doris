@@ -34,4 +34,14 @@ public class StringUtils {
         Preconditions.checkNotNull(str, "Input String for UTF8 conversion is null!");
         return str.getBytes(StandardCharsets.UTF_8);
     }
+
+    /**
+     * Normalize input string to be valid as http header value. For instance, it is illegal to contain "\r", "\n"
+     * @param str
+     * @return
+     */
+    public static String normalizeForHttp(String str){
+        Preconditions.checkNotNull(str, "Input String for Http Header normalization is null!");
+        return str.replaceAll("\r|\n", "");
+    }
 }

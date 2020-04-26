@@ -1,5 +1,6 @@
 *.swp
 *.pyc
+be/cmake-build-debug
 be/output
 be/build
 output

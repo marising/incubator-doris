@@ -102,7 +102,7 @@ public class RestBaseAction extends BaseAction {
         try {
             urlObj = new URI(urlStr);
             resultUriObj = new URI("http", null, addr.getHostname(),
-                                   addr.getPort(), urlObj.getPath(), urlObj.getQuery(), null);
+                    addr.getPort(), urlObj.getPath(), urlObj.getQuery(), null);
         } catch (URISyntaxException e) {
             LOG.warn(e.getMessage());
             throw new DdlException(e.getMessage());

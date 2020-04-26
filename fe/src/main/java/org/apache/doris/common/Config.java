@@ -964,4 +964,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long result_cache_size_in_bytes = 1024 * 1024 * 1024;
+
+    /**
+     * Hive load broker host
+     */
+    @ConfField(mutable = true)
+    public static String hive_broker_host = "127.0.0.1";
+
+    /**
+     * Hive load broker port
+     */
+    @ConfField(mutable = true)
+    public static int hive_broker_port = 9031;
 }

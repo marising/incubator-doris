@@ -84,11 +84,11 @@ public class RowCountAction extends RestBaseAction {
             if (table == null) {
                 throw new DdlException("Table[" + tableName + "] does not exist");
             }
-            
+
             if (table.getType() != TableType.OLAP) {
                 throw new DdlException("Table[" + tableName + "] is not OLAP table");
             }
-            
+
             OlapTable olapTable = (OlapTable) table;
             for (Partition partition : olapTable.getPartitions()) {
                 long version = partition.getVisibleVersion();

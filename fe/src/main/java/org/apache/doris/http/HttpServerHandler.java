@@ -30,7 +30,6 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
-import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpRequest;
@@ -42,20 +41,19 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
     private static final Logger LOG = LogManager.getLogger(HttpServerHandler.class);
 
     private ActionController controller = null;
-    protected FullHttpRequest fullRequest = null;
     protected HttpRequest request = null;
     private BaseAction action = null;
-    
+
     public HttpServerHandler(ActionController controller) {
         super();
         this.controller = controller;
     }
-    
+
     @Override
     public void channelReadComplete(ChannelHandlerContext ctx) {
         ctx.flush();
     }
-    
+
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
@@ -66,7 +64,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
             BaseRequest req = new BaseRequest(ctx, request);
-            
+
             action = getAction(req);
             if (action != null) {
                 LOG.debug("action: {} ", action.getClass().getName());
@@ -81,10 +79,10 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
         return true;
     }
 
-    private void writeResponse(ChannelHandlerContext context , HttpResponseStatus status, String content) {
+    private void writeResponse(ChannelHandlerContext context, HttpResponseStatus status, String content) {
         FullHttpResponse responseObj = new DefaultFullHttpResponse(
-                HttpVersion.HTTP_1_1, 
-                status, 
+                HttpVersion.HTTP_1_1,
+                status,
                 Unpooled.wrappedBuffer(content.getBytes()));
         responseObj.headers().set(HttpHeaderNames.CONTENT_TYPE.toString(), "text/html");
         responseObj.headers().set(HttpHeaderNames.CONTENT_LENGTH.toString(), responseObj.content().readableBytes());
@@ -96,7 +94,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
         cause.printStackTrace();
         ctx.close();
     }
-    
+
     private BaseAction getAction(BaseRequest request) {
         String uri = request.getRequest().uri();
         // ignore this request, which is a default request from client's browser.
@@ -105,13 +103,13 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
         } else if (uri.equals("/")) {
             return new IndexAction(controller);
         }
-        
+
         // Map<String, String> params = Maps.newHashMap();
         BaseAction action = (BaseAction) controller.getHandler(request);
         if (action == null) {
             action = NotFoundAction.getNotFoundAction();
         }
-        
+
         return action;
     }
 }

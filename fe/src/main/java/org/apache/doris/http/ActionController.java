@@ -21,22 +21,22 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.doris.common.path.PathTrie;
-import org.apache.doris.http.rest.LoadAction;
+
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
 
 public class ActionController {
-    private static final Logger LOG = LogManager.getLogger(LoadAction.class);
+    private static final Logger LOG = LogManager.getLogger(ActionController.class);
     private final PathTrie<IAction> getHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> postHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> putHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> deleteHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> headHandlers = new PathTrie<>(WebUtils.REST_DECODER);
     private final PathTrie<IAction> optionsHandlers = new PathTrie<>(WebUtils.REST_DECODER);
-    
+
     // Registers a rest handler to be execute when the provided method and path match the request.
-    public void registerHandler(HttpMethod method, String path, IAction handler) 
+    public void registerHandler(HttpMethod method, String path, IAction handler)
             throws IllegalArgException {
         if (method.equals(HttpMethod.GET)) {
             getHandlers.insert(path, handler);
@@ -55,7 +55,7 @@ public class ActionController {
                     "Can't handle [" + method + "] for path [" + path + "]");
         }
     }
-    
+
     public IAction getHandler(BaseRequest request) {
         String path = getPath(request.getRequest().uri());
         HttpMethod method = request.getRequest().method();
@@ -75,7 +75,7 @@ public class ActionController {
             return null;
         }
     }
-    
+
     // e.g. 
     // in: /www/system?path=//jobs
     // out: /www/system

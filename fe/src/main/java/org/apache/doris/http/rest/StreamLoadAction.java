@@ -17,6 +17,9 @@
 
 package org.apache.doris.http.rest;
 
+import com.google.common.base.Strings;
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpMethod;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -28,45 +31,34 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
-
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpMethod;
-
-public class LoadAction extends RestBaseAction {
-    private static final Logger LOG = LogManager.getLogger(LoadAction.class);
-
-    public static final String SUB_LABEL_NAME_PARAM = "sub_label";
+public class StreamLoadAction extends RestBaseAction {
+    private static final Logger LOG = LogManager.getLogger(StreamLoadAction.class);
 
     private ExecuteEnv execEnv;
 
-    public LoadAction(ActionController controller, ExecuteEnv execEnv) {
-        this(controller, execEnv, false);
-    }
-
-    public LoadAction(ActionController controller, ExecuteEnv execEnv, boolean isStreamLoad) {
+    public StreamLoadAction(ActionController controller, ExecuteEnv execEnv) {
         super(controller);
         this.execEnv = execEnv;
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv execEnv = ExecuteEnv.getInstance();
-        LoadAction action = new LoadAction(controller, execEnv);
+        StreamLoadAction action = new StreamLoadAction(controller, execEnv);
         controller.registerHandler(HttpMethod.PUT,
-                "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", action);
+                "/api/{" + LoadAction.DB_KEY + "}/{" + LoadAction.TABLE_KEY + "}/_stream_load",
+                new StreamLoadAction(controller, execEnv));
     }
 
     @Override
     public void executeWithoutPassword(ActionAuthorizationInfo authInfo,
                                        BaseRequest request, BaseResponse response) throws DdlException {
 
-        // A 'Load' request must have 100-continue header
+        // A 'StreamLoad' request must have 100-continue header
         if (!request.getRequest().headers().contains(HttpHeaders.Names.EXPECT)) {
             throw new DdlException("There is no 100-continue header");
         }
@@ -76,33 +68,26 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No cluster selected.");
         }
 
-        String dbName = request.getSingleParameter(DB_KEY);
+        String dbName = request.getSingleParameter(LoadAction.DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
         }
 
-        String tableName = request.getSingleParameter(TABLE_KEY);
+        String tableName = request.getSingleParameter(LoadAction.TABLE_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No table selected.");
         }
 
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
 
-        String label = request.getSingleParameter(LABEL_KEY);
+        String label = request.getRequest().headers().get(LoadAction.LABEL_KEY);
         if (Strings.isNullOrEmpty(label)) {
-            throw new DdlException("No label selected.");
+            LOG.error("You MUST specify a label name for a hive load request");
+            throw new DdlException("No label specified.");
         }
 
         // check auth
         checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.LOAD);
-
-        if (!Strings.isNullOrEmpty(request.getSingleParameter(SUB_LABEL_NAME_PARAM))) {
-            // only multi mini load need to redirect to Master, because only Master has the info of table to
-            // the Backend which the file exists.
-            if (redirectToMaster(request, response)) {
-                return;
-            }
-        }
 
         // Choose a backend sequentially.
         List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
@@ -116,14 +101,9 @@ public class LoadAction extends RestBaseAction {
         }
 
         TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-        String subLabel = request.getSingleParameter(SUB_LABEL_NAME_PARAM);
-        if (!Strings.isNullOrEmpty(subLabel)) {
-            redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
-        }
 
-        LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
+        LOG.info("redirect stream load action to destination={}, db: {}, tbl: {}, label: {}",
                 redirectAddr.toString(), dbName, tableName, label);
         redirectTo(request, response, redirectAddr);
     }
 }
-

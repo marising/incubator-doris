@@ -48,6 +48,7 @@ import org.apache.doris.http.rest.GetLogFileAction;
 import org.apache.doris.http.rest.GetSmallFileAction;
 import org.apache.doris.http.rest.GetStreamLoadState;
 import org.apache.doris.http.rest.HealthAction;
+import org.apache.doris.http.rest.HiveLoadAction;
 import org.apache.doris.http.rest.LoadAction;
 import org.apache.doris.http.rest.MetaReplayerCheckAction;
 import org.apache.doris.http.rest.MetricsAction;
@@ -64,6 +65,7 @@ import org.apache.doris.http.rest.ShowMetaInfoAction;
 import org.apache.doris.http.rest.ShowProcAction;
 import org.apache.doris.http.rest.ShowRuntimeInfoAction;
 import org.apache.doris.http.rest.StorageTypeCheckAction;
+import org.apache.doris.http.rest.StreamLoadAction;
 import org.apache.doris.http.rest.TableQueryPlanAction;
 import org.apache.doris.http.rest.TableRowCountAction;
 import org.apache.doris.http.rest.TableSchemaAction;
@@ -106,6 +108,8 @@ public class HttpServer {
     private void registerActions() throws IllegalArgException {
         // add rest action
         LoadAction.registerAction(controller);
+        StreamLoadAction.registerAction(controller);
+        HiveLoadAction.registerAction(controller);
         GetLoadInfoAction.registerAction(controller);
         SetConfigAction.registerAction(controller);
         GetDdlStmtAction.registerAction(controller);

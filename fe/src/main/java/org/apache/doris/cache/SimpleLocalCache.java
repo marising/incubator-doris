@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A base cache on each FE node, local only
@@ -51,14 +52,14 @@ public class SimpleLocalCache implements Cache {
 
     private final com.github.benmanes.caffeine.cache.Cache<NamedKey, byte[]> cache;
 
-    public static Cache create()
-    {
+    private final AtomicReference<com.github.benmanes.caffeine.cache.stats.CacheStats> priorStats = new AtomicReference<>(com.github.benmanes.caffeine.cache.stats.CacheStats.empty());
+
+    public static Cache create() {
         return create(CacheExecutorFactory.COMMON_FJP.createExecutor());
     }
 
     // Used in testing
-    public static Cache create(final Executor executor)
-    {
+    public static Cache create(final Executor executor) {
         LOG.info("Instance cache with expiration " + Config.result_cache_expire_after_in_milliseconds
                 + " milliseconds, max size " + Config.result_cache_size_in_bytes + " bytes");
         Caffeine<Object, Object> builder = Caffeine.newBuilder().recordStats();
@@ -78,47 +79,40 @@ public class SimpleLocalCache implements Cache {
         return new SimpleLocalCache(builder.build());
     }
 
-    private SimpleLocalCache(final com.github.benmanes.caffeine.cache.Cache<NamedKey, byte[]> cache)
-    {
+    private SimpleLocalCache(final com.github.benmanes.caffeine.cache.Cache<NamedKey, byte[]> cache) {
         this.cache = cache;
     }
 
     @Override
-    public byte[] get(NamedKey key)
-    {
+    public byte[] get(NamedKey key) {
         return decompress(cache.getIfPresent(key));
     }
 
     @Override
-    public void put(NamedKey key, byte[] value)
-    {
+    public void put(NamedKey key, byte[] value) {
         cache.put(key, compress(value));
     }
 
     @Override
-    public Map<NamedKey, byte[]> getBulk(Iterable<NamedKey> keys)
-    {
+    public Map<NamedKey, byte[]> getBulk(Iterable<NamedKey> keys) {
         // The assumption here is that every value is accessed at least once. Materializing here ensures deserialize is only
         // called *once* per value.
         return ImmutableMap.copyOf(Maps.transformValues(cache.getAllPresent(keys), this::decompress));
     }
 
     // This is completely racy with put. Any values missed should be evicted later anyways. So no worries.
-    public void close(String namespace)
-    {
+    public void close(String namespace) {
         // Evict on close
         cache.asMap().keySet().removeIf(key -> key.namespace.equals(namespace));
     }
 
     @Override
-    public void close()
-    {
+    public void close() {
         cache.cleanUp();
     }
 
     @Override
-    public CacheStats getStats()
-    {
+    public CacheStats getStats() {
         final com.github.benmanes.caffeine.cache.stats.CacheStats stats = cache.stats();
         final long size = cache
                 .policy().eviction()
@@ -136,20 +130,17 @@ public class SimpleLocalCache implements Cache {
     }
 
     @Override
-    public boolean isLocal()
-    {
+    public boolean isLocal() {
         return true;
     }
 
 
     @VisibleForTesting
-    com.github.benmanes.caffeine.cache.Cache<NamedKey, byte[]> getCache()
-    {
+    com.github.benmanes.caffeine.cache.Cache<NamedKey, byte[]> getCache() {
         return cache;
     }
 
-    private byte[] decompress(byte[] bytes)
-    {
+    private byte[] decompress(byte[] bytes) {
         if (bytes == null) {
             return null;
         }
@@ -159,8 +150,7 @@ public class SimpleLocalCache implements Cache {
         return out;
     }
 
-    private byte[] compress(byte[] value)
-    {
+    private byte[] compress(byte[] value) {
         final int len = LZ4_COMPRESSOR.maxCompressedLength(value.length);
         final byte[] out = new byte[len];
         final int compressedSize = LZ4_COMPRESSOR.compress(value, 0, value.length, out, 0);
