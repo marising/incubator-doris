@@ -100,7 +100,12 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
+            bool re = convert_one_row(Slice(ptr, size), tuple, tuple_pool);
+            if (!_json_values.empty()) {
+                _json_values.clear();
+            }
+
+            if (re) {
                 break;
             }
         }
@@ -298,66 +303,57 @@ void BrokerScanner::split_line(
     values->emplace_back(value, ptr - value);
 }
 
-char* BrokerScanner::convertToChar(Json::Value &column_value) {
-    char *column_chars = nullptr;
+bool BrokerScanner::convertToChar(Json::Value &column_value, std::string* str_value) {
     std::stringstream ss;
-    bool is_get_success = false;
-    std::string strResult;
+    bool is_get_success = true;
+
     if (column_value.isBool()) {
         bool aBool = column_value.asBool();
         ss << aBool;
-        strResult = ss.str();
-        is_get_success = true;
+        *str_value = ss.str();
     } else if (column_value.isInt()) {
         Json::Int asInt = column_value.asInt();
-        strResult = std::to_string(asInt);
-        is_get_success = true;
+        *str_value = std::to_string(asInt);
     } else if (column_value.isInt64()) {
         Json::Int64 asInt64 = column_value.asInt64();
-        strResult = std::to_string(asInt64);
-        is_get_success = true;
+        *str_value = std::to_string(asInt64);
     } else if (column_value.isDouble()) {
         double aDouble = column_value.asDouble();
-        strResult = std::to_string(aDouble);
-        is_get_success = true;
+        *str_value = std::to_string(aDouble);
     } else if (column_value.isString()) {
         const string &asString = column_value.asString();
-        strResult = asString;
-        is_get_success = true;
-    }else if (column_value.isNull()) {
-        const string asString = "";
-        strResult = asString;
-        is_get_success = true;
+        *str_value = asString;
+    } else if (column_value.isNull()) {
+        *str_value = "";
+    } else {
+        is_get_success = false;
     }
-    if (is_get_success) {
-        column_chars = new char[strResult.length() + 1];
-        strcpy(column_chars, strResult.data());
-    }
-    return column_chars;
 
+    return is_get_success;
 }
 
 void BrokerScanner::split_json_line(
-        const Slice& line, std::vector<Slice>* values) {
+        const Slice& line) {
 
     Json::Reader reader;
     Json::Value root;
     try {
-        if (reader.parse(line.data,line.data+line.size, root)){
-            if(!_column_names.empty()){
-                for (auto column_name: _column_names){
+        if (reader.parse(line.data,line.data+line.size, root)) {
+            if (!_column_names.empty()) {
+                for (auto column_name: _column_names) {
                     if (!root.isMember(column_name)) {
                         continue;
                     }
                     Json::Value &column_value = root[column_name];
-                    char *col_char_value = convertToChar(column_value);
-                    if(col_char_value != nullptr){
-                        values->emplace_back(col_char_value);
+                    std::string str_value = "";
+                    bool convert_success = convertToChar(column_value, &str_value);
+                    if (convert_success) {
+                        _json_values.emplace_back(str_value);
                     }
                 }
             }
         }
-    }catch (...){
+    }catch (...) {
         std::stringstream error_msg;
         error_msg<<"transform" <<line.data<<" fail";
         _state->append_error_msg_to_file(std::string(line.data, line.size),
@@ -483,7 +479,10 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     std::vector<Slice> values;
     {
         if ("json" == _data_type || "avro_json" == _data_type || "avro_bytes" == _data_type) {
-            split_json_line(line, &values);
+            split_json_line(line);
+	    for (int i = 0; i < _json_values.size(); ++i) {
+                values.emplace_back(_json_values[i].c_str(), _json_values[i].size());
+	    }
         } else {
             split_line(line, &values);
         }

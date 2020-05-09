@@ -82,9 +82,9 @@ private:
     void split_line(
         const Slice& line, std::vector<Slice>* values);
     void split_json_line(
-            const Slice& line, std::vector<Slice>* values);
+            const Slice& line);
 
-    char* convertToChar(Json::Value &column_value);
+    bool convertToChar(Json::Value &column_value, std::string* str_value);
 
     void fill_fix_length_string(
         const Slice& value, MemPool* pool,
@@ -131,7 +131,7 @@ private:;
 
     std::string _data_type;
     std::vector<std::string>  _column_names;
-
+    std::vector<std::string>  _json_values;
 };
 
 }
