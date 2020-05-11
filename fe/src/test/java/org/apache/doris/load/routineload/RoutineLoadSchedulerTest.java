@@ -154,11 +154,10 @@ public class RoutineLoadSchedulerTest {
         RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
-        routineLoadTaskScheduler.setInterval(5000);
+        routineLoadTaskScheduler.start();
 
         ExecutorService executorService = Executors.newFixedThreadPool(2);
         executorService.submit(routineLoadScheduler);
-        executorService.submit(routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
                 "default_cluster", 1L, 1L, "xxx", "test_1");

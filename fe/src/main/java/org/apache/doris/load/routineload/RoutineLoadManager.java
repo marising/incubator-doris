@@ -61,7 +61,7 @@ public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
 
     // Long is beId, integer is the size of tasks in be
-    private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
+    private volatile Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
     // routine load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
@@ -89,8 +89,17 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true).stream().collect(
-                Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
+        Map<Long, Integer> tempBeIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo()
+                .getBackendIds(true)
+                .stream()
+                .collect(Collectors.toMap(
+                        beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
+        writeLock();
+        try {
+            beIdToMaxConcurrentTasks = tempBeIdToMaxConcurrentTasks;
+        } finally {
+            writeUnlock();
+        }
     }
 
     // this is not real-time number
@@ -310,10 +319,12 @@ public class RoutineLoadManager implements Writable {
     }
 
     public int getClusterIdleSlotNum() {
+        if (beIdToMaxConcurrentTasks == null || beIdToMaxConcurrentTasks.isEmpty()) {
+            updateBeIdToMaxConcurrentTasks();
+        }
         readLock();
         try {
             int result = 0;
-            updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
@@ -337,11 +348,14 @@ public class RoutineLoadManager implements Writable {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
 
+        if (beIdToMaxConcurrentTasks == null || beIdToMaxConcurrentTasks.isEmpty()) {
+            updateBeIdToMaxConcurrentTasks();
+        }
+
         readLock();
         try {
             long result = -1L;
             int maxIdleSlotNum = 0;
-            updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Long beId : beIdsInCluster) {
                 if (beIdToMaxConcurrentTasks.containsKey(beId)) {
@@ -495,13 +509,9 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    public boolean checkTaskInJob(UUID taskId) {
-        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            if (routineLoadJob.containsTask(taskId)) {
-                return true;
-            }
-        }
-        return false;
+    public boolean checkTaskInJob(UUID taskId, long jobId) {
+        RoutineLoadJob routineLoadJob = idToRoutineLoadJob.get(jobId);
+        return routineLoadJob != null && routineLoadJob.containsTask(taskId);
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(Set<RoutineLoadJob.JobState> desiredStates) {

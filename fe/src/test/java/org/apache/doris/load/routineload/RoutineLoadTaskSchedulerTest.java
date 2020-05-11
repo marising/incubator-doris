@@ -17,99 +17,130 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.LoadColumnsInfo;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.thrift.BackendService;
-import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.GlobalTransactionMgr;
-
-import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TRoutineLoadTask;
 
 import org.junit.Test;
 
-import java.util.Map;
-import java.util.Queue;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+import org.easymock.EasyMock;
+import org.junit.runner.RunWith;
+import org.mockito.Mockito;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
+@RunWith(PowerMockRunner.class)
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
+@PrepareForTest({ Catalog.class })
 public class RoutineLoadTaskSchedulerTest {
 
-    @Mocked
-    private RoutineLoadManager routineLoadManager;
-    @Mocked
-    private Catalog catalog;
-    @Mocked
-    private AgentTaskExecutor agentTaskExecutor;
+    @Test
+    public void testSingleThreadSchedule() throws Exception {
+        check(1, 2);
+    }
 
     @Test
-    public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
-                                @Injectable KafkaRoutineLoadJob routineLoadJob,
-                                @Injectable RoutineLoadDesc routineLoadDesc,
-                                @Injectable LoadColumnsInfo loadColumnsInfo,
-                                @Mocked GlobalTransactionMgr globalTransactionMgr,
-                                @Mocked BackendService.Client client,
-                                @Mocked ClientPool clientPool) throws LoadException,
-            MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        long beId = 100L;
+    public void testMultiThreadSchedule() throws Exception {
+        check(4, 8);
+    }
 
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        partitionIdToOffset.put(1, 100L);
-        partitionIdToOffset.put(2, 200L);
-        KafkaProgress kafkaProgress = new KafkaProgress();
-        Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
+    private synchronized void check(int threadNumber, int taskNumber) throws Exception {
+        long timeoutMs = 10000;
+        String clusterName = "default-cluster";
+        final Catalog catalog = mockCatalog();
 
-        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", 20000,
-                partitionIdToOffset);
-        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
+        final AtomicInteger count = new AtomicInteger(0);
+        List<RoutineLoadTaskInfo> taskInfos = new ArrayList<>(taskNumber);
 
-        Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
-        idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);
+        List<RoutineLoadTaskSchedulerImpl> slots = new ArrayList<>();
+        Set<Long> s = new ConcurrentSkipListSet<>();
+        for (int i = 0; i < taskNumber; ++i) {
+            taskInfos.add(new RoutineLoadTaskInfo(UUID.randomUUID(), i, clusterName, timeoutMs) {
+                @Override
+                TRoutineLoadTask createRoutineLoadTask() throws UserException {
+                    return null;
+                }
 
-        Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
-        idToRoutineLoadJob.put("1", routineLoadJob);
+                @Override
+                String getTaskDataSourceProperties() {
+                    return null;
+                }
 
-        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+                @Override
+                public boolean beginTxn() {
+                    return true;
+                }
+            });
+        }
+        for (int i = 0; i < threadNumber; ++i) {
+            slots.add(mockRoutineLoadTaskSchedlerImpl(catalog.getRoutineLoadManager(), i, count, s));
+        }
 
-        new Expectations() {
-            {
-                Catalog.getInstance();
-                result = catalog;
-                catalog.getRoutineLoadManager();
-                result = routineLoadManager;
+        final RoutineLoadTaskScheduler scheduler = new RoutineLoadTaskScheduler(slots);
 
-                routineLoadManager.getClusterIdleSlotNum();
-                result = 1;
-                routineLoadManager.checkTaskInJob((UUID) any);
-                result = true;
+        scheduler.start();
+        scheduler.addTasksInQueue(taskInfos);
+        Thread.sleep(100);
+        System.out.println(s.size() + " " + count.get());
+        assert s.size() == threadNumber;
+        Thread.sleep(300);
+        assert count.get() == taskNumber;
+    }
 
-                kafkaRoutineLoadJob1.getDbId();
-                result = 1L;
-                kafkaRoutineLoadJob1.getTableId();
-                result = 1L;
-                kafkaRoutineLoadJob1.getName();
-                result = "";
-                routineLoadManager.getMinTaskBeId(anyString);
-                result = beId;
-                routineLoadManager.getJob(anyLong);
-                result = kafkaRoutineLoadJob1;
+    private Catalog mockCatalog() {
+        Catalog catalog = EasyMock.createMock(Catalog.class);
+
+        RoutineLoadManager routineLoadManager = mockRoutineLoadManager();
+        EasyMock.expect(catalog.isReady()).andReturn(true).anyTimes();
+        EasyMock.expect(catalog.getRoutineLoadManager()).andReturn(routineLoadManager).anyTimes();
+        EasyMock.replay(catalog);
+
+        SystemInfoService systemInfoService = new SystemInfoService();
+
+        PowerMock.mockStatic(Catalog.class);
+        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService);
+        PowerMock.replay(Catalog.class);
+        return catalog;
+    }
+
+    private RoutineLoadManager mockRoutineLoadManager() {
+        RoutineLoadManager manager = Mockito.mock(RoutineLoadManager.class);
+        // just cover this method.
+        Mockito.doAnswer(invocation -> null).when(manager).updateBeIdToMaxConcurrentTasks();
+        Mockito.doAnswer(invocation -> 1).when(manager).getClusterIdleSlotNum();
+        Mockito.doAnswer(invocation -> true)
+                .when(manager).checkTaskInJob(Mockito.any(UUID.class), Mockito.anyLong());
+        return manager;
+    }
+
+    private RoutineLoadTaskSchedulerImpl mockRoutineLoadTaskSchedlerImpl(RoutineLoadManager manager,
+            int id, final AtomicInteger count, Set<Long> s) throws Exception {
+        final RoutineLoadTaskSchedulerImpl impl =
+                Mockito.spy(new RoutineLoadTaskSchedulerImpl(manager, id));
+        Mockito.doAnswer(invocation -> {
+            s.add(Thread.currentThread().getId());
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                // need do nothing.
             }
-        };
+            count.getAndIncrement();
+            return null;
+        }).when(impl).scheduleOneTask(Mockito.any(RoutineLoadTaskInfo.class));
 
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
-        Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
-        routineLoadTaskScheduler.runAfterCatalogReady();
+        return impl;
     }
 }

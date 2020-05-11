@@ -880,6 +880,24 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;
 
+    /**
+     * the size of the thread pool used for routine load task scheduling.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_scheduler_thread_number = 1;
+
+    /**
+     * BE slot update time interval.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int backend_slot_update_interval_ms = 10000;
+
+    /**
+     * the sleep time when the routine load task schedules and finds that all slots are full.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int slot_full_sleep_ms = 10000;
+
     /*
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less

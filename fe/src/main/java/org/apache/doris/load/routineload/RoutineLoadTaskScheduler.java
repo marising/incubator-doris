@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
 
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -53,27 +55,93 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  * The scheduler will be blocked in step3 till the queue receive a new task
  */
-public class RoutineLoadTaskScheduler extends MasterDaemon {
-
+public class RoutineLoadTaskScheduler {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
-    private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
-    private static final long SLOT_FULL_SLEEP_MS = 10000; // 10s
-
-    private RoutineLoadManager routineLoadManager;
-    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
-
-    private long lastBackendSlotUpdateTime = -1;
+    @VisibleForTesting final List<RoutineLoadTaskSchedulerImpl> slots;
+    private final RoutineLoadManager routineLoadManager;
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
-        super("Routine load task scheduler", 0);
         this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+        this.slots = createWorkerThreads();
+    }
+
+    @VisibleForTesting
+    public RoutineLoadTaskScheduler(List<RoutineLoadTaskSchedulerImpl> slots) {
+        this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+        this.slots = slots;
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load task scheduler", 0);
         this.routineLoadManager = routineLoadManager;
+        this.slots = createWorkerThreads();
+    }
+
+    public void start() {
+        for (RoutineLoadTaskSchedulerImpl impl: slots) {
+            impl.start();
+        }
+    }
+
+    public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
+        RoutineLoadTaskSchedulerImpl impl = slots.get(getSlotIdForJob(routineLoadTaskInfo.getJobId()));
+        impl.addTaskInQueue(routineLoadTaskInfo);
+        LOG.debug("total tasks num in routine load task queue {}: {}", impl.id(), impl.taskQueueSize());
+    }
+
+    public void addTasksInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
+        for(RoutineLoadTaskInfo routineLoadTaskInfo: routineLoadTaskInfoList) {
+            addTaskInQueue(routineLoadTaskInfo);
+        }
+    }
+
+    private int getSlotIdForJob(long jobId) {
+        return (int) (Math.abs(jobId) % slots.size());
+    }
+
+    private ImmutableList<RoutineLoadTaskSchedulerImpl> createWorkerThreads() {
+        ImmutableList.Builder<RoutineLoadTaskSchedulerImpl> builder = ImmutableList.builder();
+        for (int i = 0; i < Config.routine_load_task_scheduler_thread_number; ++i) {
+            builder.add(new RoutineLoadTaskSchedulerImpl(routineLoadManager, i));
+        }
+        return builder.build();
+    }
+}
+
+/**
+ * There is still no systematic method to guarantee the thread safety of this class.
+ * TODO: Refactored multi-threaded scheduling.
+ */
+class RoutineLoadTaskSchedulerImpl extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskSchedulerImpl.class);
+
+    private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = Config.backend_slot_update_interval_ms;
+    private static final long SLOT_FULL_SLEEP_MS = Config.slot_full_sleep_ms;
+    private static final AtomicLong lastBackendSlotUpdateTime = new AtomicLong(-1);
+
+    private final RoutineLoadManager routineLoadManager;
+    private final LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
+
+    private final int id;
+
+    public RoutineLoadTaskSchedulerImpl(RoutineLoadManager routineLoadManager, int id) {
+        super("Routine load task scheduler " + id, 0);
+        this.id = id;
+        this.routineLoadManager = routineLoadManager;
+        this.needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
+    }
+
+    public void addTaskInQueue(RoutineLoadTaskInfo taskInfo) {
+        needScheduleTasksQueue.add(taskInfo);
+    }
+
+    public int taskQueueSize() {
+        return needScheduleTasksQueue.size();
+    }
+
+    public int id() {
+        return this.id;
     }
 
     @Override
@@ -111,10 +179,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
     }
 
-    private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
+    @VisibleForTesting
+    void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         // check if task has been abandoned
-        if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo.getId())) {
+        if (!routineLoadManager.checkTaskInJob(
+                routineLoadTaskInfo.getId(), routineLoadTaskInfo.getJobId())) {
             // task has been abandoned while renew task has been added in queue
             // or database has been deleted
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
@@ -129,6 +199,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
             }
         } catch (Exception e) {
             // exception happens, PAUSE the job
@@ -146,6 +217,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 // set BE id to -1 to release the BE slot
                 routineLoadTaskInfo.setBeId(-1);
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
             }
         } catch (Exception e) {
             // exception happens, PAUSE the job
@@ -181,6 +253,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // submit failed. push it back to the queue to wait next scheduling
             routineLoadTaskInfo.setBeId(-1);
             needScheduleTasksQueue.put(routineLoadTaskInfo);
+            return;
         }
 
         // set the executeStartTimeMs of task
@@ -189,23 +262,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
     private void updateBackendSlotIfNecessary() {
         long currentTime = System.currentTimeMillis();
-        if (lastBackendSlotUpdateTime == -1
-                || (currentTime - lastBackendSlotUpdateTime > BACKEND_SLOT_UPDATE_INTERVAL_MS)) {
+        long lastTime = lastBackendSlotUpdateTime.get();
+        boolean shouldUpdate = ((lastTime == -1 ||
+                (currentTime - lastTime > BACKEND_SLOT_UPDATE_INTERVAL_MS)) &&
+                lastBackendSlotUpdateTime.compareAndSet(lastTime, currentTime));
+        if (shouldUpdate) {
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
-            lastBackendSlotUpdateTime = currentTime;
             LOG.debug("update backend max slot for routine load task scheduling. current task num per BE: {}",
                     Config.max_routine_load_task_num_per_be);
         }
-    }
-
-    public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
-        needScheduleTasksQueue.add(routineLoadTaskInfo);
-        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
-    }
-
-    public void addTasksInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
-        needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
-        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
     private boolean submitTask(long beId, TRoutineLoadTask tTask) {
@@ -249,7 +314,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
-    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
+    @VisibleForTesting
+    boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
                 if (LOG.isDebugEnabled()) {
