@@ -37,6 +37,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -61,7 +62,7 @@ public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
 
     // Long is beId, integer is the size of tasks in be
-    private volatile Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
+    private volatile ImmutableMap<Long, Integer> beIdToMaxConcurrentTasks = ImmutableMap.of();
 
     // routine load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
@@ -89,11 +90,11 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        Map<Long, Integer> tempBeIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo()
+        ImmutableMap<Long, Integer> tempBeIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo()
                 .getBackendIds(true)
                 .stream()
-                .collect(Collectors.toMap(
-                        beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
+                .collect(Collectors.collectingAndThen(Collectors.toMap(
+                        beId -> beId, beId -> Config.max_routine_load_task_num_per_be), ImmutableMap::copyOf));
         writeLock();
         try {
             beIdToMaxConcurrentTasks = tempBeIdToMaxConcurrentTasks;
