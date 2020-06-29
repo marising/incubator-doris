@@ -487,7 +487,7 @@ public class PartitionCacheTest {
             Assert.fail(e.getMessage());
         }
     }
-
+    
     @Test
     public void testSubSelect() throws Exception {
         StatementBase parseStmt = parseSql(
