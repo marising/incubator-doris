@@ -464,7 +464,7 @@ public class PartitionRange {
      * PARTITION p20200102 VALUES [("20200102"), ("20200103")) )
      */
     private void getTablePartitionList(OlapTable table) {
-        Map<Long, Range<PartitionKey>> range = rangePartitionInfo.getIdToRange();
+        Map<Long, Range<PartitionKey>> range = rangePartitionInfo.getIdToRange(false);
         for (Map.Entry<Long, Range<PartitionKey>> entry : range.entrySet()) {
             Long partId = entry.getKey();
             for (PartitionSingle single : partitionSingleList) {

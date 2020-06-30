@@ -612,7 +612,7 @@ public class StmtExecutor {
 
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.exec();
 
         while (true) {
@@ -687,7 +687,7 @@ public class StmtExecutor {
 
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.exec();
         while (true) {
             batch = coord.getNext();

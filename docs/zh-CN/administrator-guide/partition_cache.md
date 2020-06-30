@@ -118,8 +118,9 @@ enable_sql_cache=true
 ```
 在MySQL命令行中设置变量
 ```
-MySQL [(none)]> set enable_sql_cache=true;
+MySQL [(none)]> set [global] enable_sql_cache=true;
 ```
+注：globa是全局变量，不加指当前会话变量
 
 ### 开启PartitionCache
 fe.conf添加enable_partition_cache=true
@@ -129,7 +130,7 @@ enable_partition_cache=true
 ```
 在MySQL命令行中设置变量
 ```
-MySQL [(none)]> set enable_partition_cache=true;
+MySQL [(none)]> set [global] enable_partition_cache=true;
 ```
 
 如果同时开启了两个缓存策略，下面的参数，需要注意一下:
@@ -141,12 +142,16 @@ last_version_interval_second=3600
 ### 监控
 FE的监控项：
 ```
-cache_sql           //通过SQL命中的Query数量
-cache_partition     //通过Partition命中的Query数量
-partition_all       //Query中扫描的所有分区
-partition_hit       //通过Cache命中的分区数量
+query_table            //Query中有表的数量
+query_olap_table       //Query中有Olap表的数量
+cache_mode_sql         //识别缓存模式为sql的Query数量
+cache_hit_sql          //模式为sql的Query命中Cache的数量
+query_mode_partition   //识别缓存模式为Partition的Query数量
+cache_hit_partition	    //通过Partition命中的Query数量
+partition_all          //Query中扫描的所有分区
+partition_hit          //通过Cache命中的分区数量
 
-Cache命中率     = （cache_sql + cache_partition) / query_total
+Cache命中率     = （cache_hit_sql + cache_hit_partition) / query_olap_table
 Partition命中率 = partition_hit / partition_all
 ```
 
@@ -190,10 +195,6 @@ cache_elasticity_size=128
 * T+1的数据，是否也可以用Partition缓存? 目前不支持
 * 类似的SQL，之前查询了2个指标，现在查询3个指标，是否可以利用2个指标的缓存？ 目前不支持
 * 按日期分区，但是需要按周维度汇总数据，是否可用PartitionCache？ 目前不支持
-
-
-
-
 
 
 

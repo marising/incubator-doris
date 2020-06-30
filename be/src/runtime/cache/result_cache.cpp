@@ -233,9 +233,9 @@ void ResultCache::remove(ResultNode* result_node) {
 }
 
 void ResultCache::update_monitor() {
-    DorisMetrics::cache_memory_total.set_value(_cache_size);
-    DorisMetrics::cache_sql_total.set_value(_node_count);
-    DorisMetrics::cache_partition_total.set_value(_partition_count);
+    DorisMetrics::instance()->cache_memory_total.set_value(_cache_size);
+    DorisMetrics::instance()->cache_sql_total.set_value(_node_count);
+    DorisMetrics::instance()->cache_partition_total.set_value(_partition_count);
 }
 
 } // namespace doris

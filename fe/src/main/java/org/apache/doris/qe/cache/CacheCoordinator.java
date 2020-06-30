@@ -105,11 +105,13 @@ public class CacheCoordinator {
         try {
             belock.lock();
             ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
-            if (!DebugModel) {
-                clearBackend(idToBackend);
-            }
-            for (Backend backend : idToBackend.values().asList()) {
-                addBackend(backend);
+            if (idToBackend != null) {
+                if (!DebugModel) {
+                    clearBackend(idToBackend);
+                }
+                for (Backend backend : idToBackend.values().asList()) {
+                    addBackend(backend);
+                }
             }
             this.lastRefreshTime = System.currentTimeMillis();
         } finally {

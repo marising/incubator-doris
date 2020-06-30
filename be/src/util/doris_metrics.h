@@ -170,9 +170,9 @@ public:
 	METRIC_DEFINE_INT_GAUGE(blocks_open_writing, MetricUnit::BLOCKS);
 
     // Cache metrics
-    METRIC_DEFINE_INT_COUNTER(cache_memory_total, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_COUNTER(cache_sql_total, MetricUnit::NOUNIT);
-    METRIC_DEFINE_INT_COUNTER(cache_partition_total, MetricUnit::NOUNIT);
+    METRIC_DEFINE_INT_GAUGE(cache_memory_total, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_GAUGE(cache_sql_total, MetricUnit::NOUNIT);
+    METRIC_DEFINE_INT_GAUGE(cache_partition_total, MetricUnit::NOUNIT);
 	
 	// Size of some global containers
 	METRIC_DEFINE_UINT_GAUGE(rowset_count_generated_and_in_use, MetricUnit::ROWSETS);
